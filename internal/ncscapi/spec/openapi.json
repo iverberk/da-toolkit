@@ -1,0 +1,1292 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Data Analysis API - External",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/v1/data-analyses": {
+      "post": {
+        "tags": [
+          "v1",
+          "data-analyses"
+        ],
+        "summary": "Create a data analysis",
+        "description": "Create a new data analysis.\n\nThis endpoint initiates a data analysis process with the specified configuration.\n\nRate limit: 60 requests per hour per account.",
+        "operationId": "create_data_analysis_v1_data_analyses_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StoreDataAnalysisRequest"
+              },
+              "examples": {
+                "malware": {
+                  "summary": "Malware Analysis",
+                  "value": {
+                    "type": "malware",
+                    "files": [
+                      {
+                        "name": "malware.exe",
+                        "aes_key": "T5yU7aB9cD1eF3gH5jK7mN9pQ2rS4tV6wX8zB0cE2f=",
+                        "hash": "3a7bd3e2360a3d29eea436fcfb7e44c735d117c42d1c1835420b6b9942dd4f1b",
+                        "zip_password": "SecretPassword$"
+                      }
+                    ],
+                    "metadata": {}
+                  }
+                },
+                "forensic": {
+                  "summary": "Forensic Analysis",
+                  "value": {
+                    "type": "forensic",
+                    "files": [
+                      {
+                        "name": "disk_copy.dd",
+                        "aes_key": "A9sF2dG8hJ4kL6mP1qR7tV3wX5yZ8bC0eN2oQ4uI6v=",
+                        "hash": "2c5a9f1e4d7b3a6c8e2f5d9b1a4c7e3f6d8b2a5c9e1f4d7b3a6c8e2f5d9b1a4c",
+                        "disk_encryption_key": "DiskPassword123!",
+                        "requested_analyses": [
+                          "yara",
+                          "amcache",
+                          "thumbcache",
+                          "sam",
+                          "activitiescache",
+                          "recyclebin",
+                          "browser.history",
+                          "users",
+                          "prefetch",
+                          "bam",
+                          "runkeys",
+                          "browser.passwords",
+                          "sru",
+                          "evtx.logons",
+                          "trusteddocs",
+                          "mft",
+                          "jumplist",
+                          "mru.recentdocs",
+                          "cam",
+                          "browser.cookies",
+                          "mru.acmru",
+                          "userassist",
+                          "evtx.removable-device-activity",
+                          "browser.extensions",
+                          "mru.msoffice",
+                          "browser.full",
+                          "shellbags",
+                          "mru",
+                          "shimcache",
+                          "mru.lastvisited",
+                          "mru.opensave",
+                          "browser.downloads",
+                          "usb.history",
+                          "lnk",
+                          "evtx.service-event",
+                          "iexplore.history",
+                          "evtx.auth-events",
+                          "evtx.full",
+                          "services",
+                          "evtx.rdp-usage"
+                        ]
+                      },
+                      {
+                        "name": "disk_image.img",
+                        "aes_key": "P8mN3qR7vL2wX9jK5tY1aF6gD4sH8uE0cB9nM3pQ7z=",
+                        "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                        "requested_analyses": [
+                          "yara",
+                          "amcache",
+                          "thumbcache"
+                        ]
+                      }
+                    ],
+                    "manual_analysis_allowed": false,
+                    "metadata": {}
+                  }
+                },
+                "other": {
+                  "summary": "Other Analysis",
+                  "value": {
+                    "type": "other",
+                    "files": [
+                      {
+                        "name": "numbers.csv",
+                        "aes_key": "vB8nX3jK5mR9wP2fL7tY4aQ6sD1gH8uJ3kE9vN2cM5z=",
+                        "hash": "b4d8f2a6c3e5d1b9f7a4c8e2d6b3f5a9c1e7d4b8f2a6c9e3d5b1f8a4c7e2d6b9"
+                      },
+                      {
+                        "name": "notes.txt",
+                        "aes_key": "K7mP9xR2vL8nQ4wE6jT1yU3oA5sD7fG9hJ2kM4pN6qC=",
+                        "hash": "7f3e9c8a2b1d4f6e5a8c9d2e4b6f1a3c5d7e9b2f4a6c8e1d3b5f7a9c2e4d6f8a"
+                      }
+                    ],
+                    "manual_analysis_allowed": true,
+                    "metadata": {}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataAnalysisCreatedResource"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestValidationErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "v1",
+          "data-analyses"
+        ],
+        "summary": "Read all data analyses",
+        "description": "Read all data analyses.\n\nThis endpoint retrieves details (status, files and results, etc.) of all data analyses.",
+        "operationId": "read_data_analyses_v1_data_analyses_get",
+        "parameters": [
+          {
+            "name": "filters",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A JSON string representing filter conditions.",
+              "title": "Filters"
+            },
+            "description": "A JSON string representing filter conditions."
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "e.g. name:asc, role.name:desc, role__department__name:asc",
+              "title": "Sort"
+            },
+            "description": "e.g. name:asc, role.name:desc, role__department__name:asc"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A string for global search. Searches only the root model's string/enum columns. To search related models, use search_fields parameter.",
+              "title": "Search"
+            },
+            "description": "A string for global search. Searches only the root model's string/enum columns. To search related models, use search_fields parameter."
+          },
+          {
+            "name": "search_fields",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Comma-separated field names and nested paths to search (e.g., name,email,role.name,role.department.name). If specified, only these exact fields are searched (can include nested relationships). If not specified, only the root model's string/enum columns are searched (no relationships).",
+              "title": "Search Fields"
+            },
+            "description": "Comma-separated field names and nested paths to search (e.g., name,email,role.name,role.department.name). If specified, only these exact fields are searched (can include nested relationships). If not specified, only the root model's string/enum columns are searched (no relationships)."
+          },
+          {
+            "name": "case_sensitive",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "When true, uses legacy case-sensitive behavior for string filters and string sorting. Default false applies case-insensitive behavior.",
+              "default": false,
+              "title": "Case Sensitive"
+            },
+            "description": "When true, uses legacy case-sensitive behavior for string filters and string sorting. Default false applies case-insensitive behavior."
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Page number",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "Page number"
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Page size",
+              "default": 50,
+              "title": "Size"
+            },
+            "description": "Page size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_DataAnalysisCollection_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestValidationErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/data-analyses/{data_analysis_id}": {
+      "get": {
+        "tags": [
+          "v1",
+          "data-analyses"
+        ],
+        "summary": "Read a data analysis",
+        "description": "Read a data analysis.\n\nThis endpoint retrieves details (status, files and results, etc.) of the provided data analysis.\n\nRate limit: 6 requests per data analysis per minute per account.",
+        "operationId": "read_data_analysis_v1_data_analyses__data_analysis_id__get",
+        "parameters": [
+          {
+            "name": "data_analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Data Analysis Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataAnalysisResource"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestValidationErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "v1",
+          "data-analyses"
+        ],
+        "summary": "Delete a data analysis",
+        "description": "Delete a data analysis.\n\nThis endpoint deletes a data analysis and the corresponding source data.",
+        "operationId": "delete_data_analysis_v1_data_analyses__data_analysis_id__delete",
+        "parameters": [
+          {
+            "name": "data_analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Data Analysis Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Deletion request accepted. The data analysis is immediately represented as deleted, while the underlying data is deleted asynchronously in the background."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Deletion request could not be processed."
+          }
+        }
+      }
+    },
+    "/v1/data-analyses/{data_analysis_id}/results/{file_name}": {
+      "get": {
+        "tags": [
+          "v1",
+          "data-analyses-results"
+        ],
+        "summary": "Retrieve a specific result file of the specified data analysis.",
+        "description": "Retrieve a specific result file of the specified data analysis.\n\nThis endpoint retrieves the specified file corresponding to the provided data analysis from storage as binary data.\n\nRate limit: 12 requests per data analysis per minute per account.",
+        "operationId": "data_analysis_get_result_v1_data_analyses__data_analysis_id__results__file_name__get",
+        "parameters": [
+          {
+            "name": "data_analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Data Analysis Id"
+            }
+          },
+          {
+            "name": "file_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "File Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/octet-stream": {},
+              "application/csv": {},
+              "application/pdf ": {},
+              "application/json ": {}
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {}
+            },
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/v1/data-analyses/{data_analysis_id}/results": {
+      "post": {
+        "tags": [
+          "v1",
+          "data-analyses-results"
+        ],
+        "summary": "Retrieve an archive with all results of the specified data analysis.",
+        "description": "Retrieve an archive with all results of the specified data analysis.\n\nThis endpoint retrieves a ZIP archive with all results of the specified data analysis from storage as binary data.\n\nRate limit: 12 requests per data analysis per minute per account.",
+        "operationId": "data_analysis_get_results_archive_v1_data_analyses__data_analysis_id__results_post",
+        "parameters": [
+          {
+            "name": "data_analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Data Analysis Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/octet-stream": {}
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {}
+            },
+            "description": "Not Found"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "DataAnalysisCollection": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "type": {
+            "$ref": "#/components/schemas/DataAnalysisType"
+          },
+          "manual_analysis_allowed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manual Analysis Allowed",
+            "default": false
+          },
+          "status": {
+            "$ref": "#/components/schemas/DataAnalysisStatus"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "processing_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Processing At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "expired_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expired At"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "status",
+          "metadata",
+          "processing_at",
+          "completed_at",
+          "expired_at",
+          "created_at"
+        ],
+        "title": "DataAnalysisCollection",
+        "description": "Transforms data analyses into a paginated API response format."
+      },
+      "DataAnalysisCreatedResource": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "type": {
+            "$ref": "#/components/schemas/DataAnalysisType"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/DataAnalysisFileUploadResource"
+            },
+            "type": "array",
+            "title": "Files"
+          },
+          "manual_analysis_allowed": {
+            "type": "boolean",
+            "title": "Manual Analysis Allowed"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Metadata"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "files",
+          "manual_analysis_allowed",
+          "metadata"
+        ],
+        "title": "DataAnalysisCreatedResource",
+        "description": "Transforms a data analysis model into a standardized API response format."
+      },
+      "DataAnalysisFile": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_. \\-]+$",
+            "title": "Name",
+            "description": "Exact filename as it will be uploaded"
+          },
+          "aes_key": {
+            "type": "string",
+            "title": "Aes Key",
+            "description": "AES-256-GCM encryption key (base64 encoded) for this file"
+          },
+          "hash": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-zA-Z0-9_., \\-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hash",
+            "description": "SHA-256 hash of the encrypted file"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "aes_key"
+        ],
+        "title": "DataAnalysisFile",
+        "description": "Generic fields belonging to every data analysis file."
+      },
+      "DataAnalysisFileResource": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "processing",
+              "completed"
+            ],
+            "title": "Status"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "results": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/DataAnalysisResultResource"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Results",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "status",
+          "completed_at"
+        ],
+        "title": "DataAnalysisFileResource",
+        "description": "Transforms a data analysis file into a standardized API response format."
+      },
+      "DataAnalysisFileUploadResource": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "sas_url": {
+            "type": "string",
+            "title": "Sas Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "sas_url"
+        ],
+        "title": "DataAnalysisFileUploadResource",
+        "description": "Transforms a data analysis file upload into a standardized API response format."
+      },
+      "DataAnalysisForensicData": {
+        "properties": {
+          "metadata": {
+            "patternProperties": {
+              "^[a-zA-Z0-9_., \\-]+$": {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-zA-Z0-9_., \\-]+$"
+              }
+            },
+            "propertyNames": {
+              "maxLength": 128,
+              "minLength": 1
+            },
+            "type": "object",
+            "maxProperties": 20,
+            "title": "Metadata",
+            "description": "Key-value object for providing contextual information about this data analysis",
+            "default": {}
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/ForensicDataAnalysisFile"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Files",
+            "description": "List of files for forensic analysis. Expected to contain a Windows disk image."
+          },
+          "type": {
+            "type": "string",
+            "const": "forensic",
+            "title": "Type",
+            "description": "Type of analysis"
+          },
+          "manual_analysis_allowed": {
+            "type": "boolean",
+            "title": "Manual Analysis Allowed",
+            "description": "Whether analysts may view the source data"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "files",
+          "type",
+          "manual_analysis_allowed"
+        ],
+        "title": "DataAnalysisForensicData",
+        "description": "Fields belonging to forensic data analyses."
+      },
+      "DataAnalysisMalwareData": {
+        "properties": {
+          "metadata": {
+            "patternProperties": {
+              "^[a-zA-Z0-9_., \\-]+$": {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-zA-Z0-9_., \\-]+$"
+              }
+            },
+            "propertyNames": {
+              "maxLength": 128,
+              "minLength": 1
+            },
+            "type": "object",
+            "maxProperties": 20,
+            "title": "Metadata",
+            "description": "Key-value object for providing contextual information about this data analysis",
+            "default": {}
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/MalwareDataAnalysisFile"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Files"
+          },
+          "type": {
+            "type": "string",
+            "const": "malware",
+            "title": "Type",
+            "description": "Type of analysis"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "files",
+          "type"
+        ],
+        "title": "DataAnalysisMalwareData",
+        "description": "Fields belonging to malware data analyses."
+      },
+      "DataAnalysisOtherData": {
+        "properties": {
+          "metadata": {
+            "patternProperties": {
+              "^[a-zA-Z0-9_., \\-]+$": {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-zA-Z0-9_., \\-]+$"
+              }
+            },
+            "propertyNames": {
+              "maxLength": 128,
+              "minLength": 1
+            },
+            "type": "object",
+            "maxProperties": 20,
+            "title": "Metadata",
+            "description": "Key-value object for providing contextual information about this data analysis",
+            "default": {}
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/DataAnalysisFile"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Files"
+          },
+          "type": {
+            "type": "string",
+            "const": "other",
+            "title": "Type",
+            "description": "Type of analysis"
+          },
+          "manual_analysis_allowed": {
+            "type": "boolean",
+            "const": true,
+            "title": "Manual Analysis Allowed"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "files",
+          "type",
+          "manual_analysis_allowed"
+        ],
+        "title": "DataAnalysisOtherData",
+        "description": "Fields belonging to other data analyses."
+      },
+      "DataAnalysisResource": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "type": {
+            "$ref": "#/components/schemas/DataAnalysisType"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/DataAnalysisFileResource"
+            },
+            "type": "array",
+            "title": "Files"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DataAnalysisStatus"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "processing_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Processing At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "expired_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expired At"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "manual_analysis_allowed": {
+            "type": "boolean",
+            "title": "Manual Analysis Allowed",
+            "description": "Return whether or not manual analysis is allowed based on the form fields.",
+            "readOnly": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "files",
+          "status",
+          "metadata",
+          "processing_at",
+          "completed_at",
+          "expired_at",
+          "created_at",
+          "manual_analysis_allowed"
+        ],
+        "title": "DataAnalysisResource",
+        "description": "Transforms a data analysis model into a standardized API response format."
+      },
+      "DataAnalysisResultResource": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "size"
+        ],
+        "title": "DataAnalysisResultResource",
+        "description": "Transforms a data analysis result into a standardized API response format."
+      },
+      "DataAnalysisStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "submitted",
+          "processing",
+          "completed"
+        ],
+        "title": "DataAnalysisStatus",
+        "description": "Enum representing different states of a data analysis."
+      },
+      "DataAnalysisType": {
+        "type": "string",
+        "enum": [
+          "malware",
+          "forensic",
+          "other"
+        ]
+      },
+      "ForensicDataAnalysisFile": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_. \\-]+$",
+            "title": "Name",
+            "description": "Exact filename as it will be uploaded"
+          },
+          "aes_key": {
+            "type": "string",
+            "title": "Aes Key",
+            "description": "AES-256-GCM encryption key (base64 encoded) for this file"
+          },
+          "hash": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-zA-Z0-9_., \\-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hash",
+            "description": "SHA-256 hash of the encrypted file"
+          },
+          "disk_encryption_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-zA-Z0-9_., \\-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disk Encryption Key",
+            "description": "Decryption key for encrypted disk images"
+          },
+          "requested_analyses": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Requested Analyses",
+            "description": "Types of forensic analyses to perform"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "aes_key",
+          "requested_analyses"
+        ],
+        "title": "ForensicDataAnalysisFile",
+        "description": "Fields belonging to forensic data analysis files."
+      },
+      "MalwareDataAnalysisFile": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_. \\-]+$",
+            "title": "Name",
+            "description": "Exact filename as it will be uploaded"
+          },
+          "aes_key": {
+            "type": "string",
+            "title": "Aes Key",
+            "description": "AES-256-GCM encryption key (base64 encoded) for this file"
+          },
+          "hash": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-zA-Z0-9_., \\-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hash",
+            "description": "SHA-256 hash of the encrypted file"
+          },
+          "zip_password": {
+            "type": "string",
+            "title": "Zip Password",
+            "description": "Password to decrypt protected zip files during malware analysis",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "aes_key"
+        ],
+        "title": "MalwareDataAnalysisFile",
+        "description": "Fields belonging to malware data analysis files."
+      },
+      "Page_DataAnalysisCollection_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DataAnalysisCollection"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Size"
+          },
+          "pages": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Pages"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "size",
+          "pages"
+        ],
+        "title": "Page[DataAnalysisCollection]"
+      },
+      "RequestValidationErrorResponse": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "The request was well-formed but contained invalid or missing data. Please check your input and try again."
+          },
+          "trace_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Trace Id",
+            "default": "3eb12982-9f09-43b7-80d6-38407b5436c4"
+          },
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationErrorDetail"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "RequestValidationErrorResponse",
+        "description": "Custom response model for overridden FastAPI/Starlette request validation exception handler."
+      },
+      "StoreDataAnalysisRequest": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/DataAnalysisMalwareData"
+          },
+          {
+            "$ref": "#/components/schemas/DataAnalysisForensicData"
+          },
+          {
+            "$ref": "#/components/schemas/DataAnalysisOtherData"
+          }
+        ],
+        "title": "StoreDataAnalysisRequest",
+        "description": "Store data analysis request.",
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "forensic": "#/components/schemas/DataAnalysisForensicData",
+            "malware": "#/components/schemas/DataAnalysisMalwareData",
+            "other": "#/components/schemas/DataAnalysisOtherData"
+          }
+        }
+      },
+      "ValidationErrorDetail": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Loc"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Msg"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Ctx",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationErrorDetail",
+        "description": "Details for a single Pydantic validation error, as returned in HTTP 422 responses."
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.ncsc.nl/data-analysis",
+      "description": "Production environment"
+    }
+  ]
+}
