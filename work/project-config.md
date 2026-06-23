@@ -17,7 +17,10 @@ If another repo document conflicts with this file, follow this file.
 - `work/backlog/planned/`, `work/backlog/in-progress/`, and `work/backlog/done/` store story lifecycle state.
 - `work/adr/` stores architecture and product decisions that should survive chat sessions.
 - `work/guidelines/` stores compact project-specific guidance loaded by agents for matching work.
-- Application source layout is not created yet; define it through stories/ADRs before implementation begins.
+- `go.mod` defines the Go module for the CLI-first toolkit.
+- `main.go` contains the Cobra-generated executable entrypoint.
+- `cmd/` contains Cobra command definitions generated with `cobra-cli init` and `cobra-cli add`.
+- `internal/config/` contains non-secret configuration loading and validation. It must not persist API credentials, OAuth tokens, AES keys, passwords, or other secrets.
 
 ## Output Rules
 
@@ -29,12 +32,13 @@ If another repo document conflicts with this file, follow this file.
 ## Domain Rules
 
 - CLI workflows: load `work/guidelines/cli-workflows.md` for CLI commands, workflow orchestration, acquisition flow, GUI parity, cleanup, and user prompts.
+- Go: load `work/guidelines/go.md` for Go source, Cobra command structure, command generation, formatting, tests, and vetting.
 - API upload: load `work/guidelines/api-upload.md` for NCSC API, OAuth, SAS upload, encryption, hashing, resume, retry, checkpoints, and result retrieval.
 - Packaging/licensing: load `work/guidelines/packaging-and-licensing.md` for single-binary distribution, embedded Python, Dissect/acquire, React asset embedding, EUPL, AGPL, notices, and release packaging.
 
 ## Technology Rules
 
-- Go is the intended primary implementation language; record detailed Go project standards before implementation.
+- Go is the intended primary implementation language; follow `work/guidelines/go.md` for Go source and Cobra command changes.
 - Dissect/acquire must run exactly for acquisition workflows; use packaging/licensing guidance before changing acquisition integration.
 - go-embed-python is the current candidate for embedded Python/acquire packaging; record an ADR before committing to it.
 - React/shadcn is the intended GUI stack; GUI work should remain a local webserver convenience wrapper over CLI workflow semantics.
@@ -43,6 +47,7 @@ If another repo document conflicts with this file, follow this file.
 ## Review Rules
 
 - Review CLI workflow changes against `work/guidelines/cli-workflows.md`.
+- Review Go source and Cobra command changes against `work/guidelines/go.md`.
 - Review API, encryption, upload, resume, or result retrieval changes against `work/guidelines/api-upload.md`.
 - Review packaging, dependency embedding, release, or license changes against `work/guidelines/packaging-and-licensing.md`.
 - Require ADR discussion before changing licensing posture, embedded Python approach, acquisition execution model, or restart-resume semantics.
@@ -62,6 +67,7 @@ If another repo document conflicts with this file, follow this file.
 ### Implementation
 
 - Load `work/guidelines/cli-workflows.md` when adding or changing CLI/user workflow behavior.
+- Load `work/guidelines/go.md` when adding or changing Go source, Cobra commands, or Go module metadata.
 - Load `work/guidelines/api-upload.md` when adding or changing NCSC API, OAuth, encryption, hashing, upload, retry, resume, or result retrieval behavior.
 - Load `work/guidelines/packaging-and-licensing.md` when adding or changing embedded Python, Dissect/acquire packaging, GUI asset embedding, release, or license behavior.
 
@@ -73,8 +79,12 @@ If another repo document conflicts with this file, follow this file.
 
 ## Command Rules
 
-- Repo-level validation commands are not defined yet because application source does not exist.
-- Define build, test, lint, codegen, and release commands in this file once the Go module and UI workspace are introduced.
+- Build (always): `go build -o /tmp/da-toolkit .`
+- Test (always): `go test ./...`
+- Lint/static analysis (always): `go vet ./...`
+- Formatting (always): `gofmt -w main.go cmd internal/config`; inspect `git diff` afterward so formatting changes are intentional.
+- Code generation: no code generation command is defined yet.
+- Release packaging: no release packaging command is defined yet.
 
 ## Agent Usage Rule
 
