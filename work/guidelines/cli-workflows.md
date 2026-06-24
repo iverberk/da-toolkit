@@ -5,10 +5,10 @@
 - Route GUI actions through the same workflow semantics as CLI commands.
 - Require explicit user confirmation before destructive cleanup.
 - Report resumable state, non-resumable failures, and SAS expiry clearly.
-- Keep API credentials, OAuth tokens, and AES keys in memory only.
+- Keep API credentials, OAuth tokens, and AES keys in memory only; SAS URLs may be persisted only in protected upload checkpoints for restart-resume.
 
 ## Pitfalls
-- Do not persist secrets to support resume.
+- Do not persist client secrets, OAuth tokens, or AES keys to support resume.
 - Do not create replacement data-analyses automatically after SAS expiry.
 - Do not let GUI behavior diverge from CLI behavior.
 

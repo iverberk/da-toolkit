@@ -84,7 +84,7 @@ func NewClient(cfg Config) (*Client, error) {
 		tokenURL:     tokenURL,
 		clientID:     cfg.ClientID,
 		clientSecret: cfg.ClientSecret,
-		scopes:       append([]string(nil), cfg.Scopes...),
+		scopes:       oauthScopes(cfg.Scopes),
 		httpClient:   tokenHTTPClient,
 	}
 	httpClient := &http.Client{
@@ -106,10 +106,17 @@ func (c *Client) CreateAnalysis(ctx context.Context, request generated.StoreData
 	if err != nil {
 		return nil, fmt.Errorf("create data analysis: %w", err)
 	}
-	if resp.JSON200 == nil {
-		return nil, normalizeAPIError("create data analysis", resp.StatusCode(), resp.HTTPResponse, resp.Body, resp.JSON422)
+	if resp.JSON200 != nil {
+		return resp.JSON200, nil
 	}
-	return resp.JSON200, nil
+	if resp.StatusCode() == http.StatusAccepted {
+		created, err := parseAcceptedCreateAnalysis(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("create data analysis: parse accepted response: %w", err)
+		}
+		return created, nil
+	}
+	return nil, normalizeAPIError("create data analysis", resp.StatusCode(), resp.HTTPResponse, resp.Body, resp.JSON422)
 }
 
 func (c *Client) ListAnalyses(ctx context.Context, opts ListOptions) (*generated.PageDataAnalysisCollection, error) {
@@ -226,6 +233,32 @@ func contentType(resp *http.Response) string {
 	return resp.Header.Get("Content-Type")
 }
 
+func parseAcceptedCreateAnalysis(body []byte) (*generated.DataAnalysisCreatedResource, error) {
+	if len(bytes.TrimSpace(body)) == 0 {
+		return nil, errors.New("empty response body")
+	}
+	var created generated.DataAnalysisCreatedResource
+	if err := json.Unmarshal(body, &created); err != nil {
+		return nil, err
+	}
+	return &created, nil
+}
+
+func oauthScopes(configured []string) []string {
+	scopes := append([]string{"openid"}, configured...)
+	seen := make(map[string]bool, len(scopes))
+	unique := scopes[:0]
+	for _, scope := range scopes {
+		scope = strings.TrimSpace(scope)
+		if scope == "" || seen[scope] {
+			continue
+		}
+		seen[scope] = true
+		unique = append(unique, scope)
+	}
+	return unique
+}
+
 type bearerTransport struct {
 	base   http.RoundTripper
 	source *tokenSource
@@ -297,7 +330,7 @@ func (s *tokenSource) fetch(ctx context.Context) (oauthToken, error) {
 		return oauthToken{}, fmt.Errorf("read oauth token response: %w", readErr)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return oauthToken{}, &APIError{Operation: "request oauth token", StatusCode: resp.StatusCode, Message: "oauth token endpoint returned " + resp.Status}
+		return oauthToken{}, &APIError{Operation: "request oauth token", StatusCode: resp.StatusCode, Message: "oauth token endpoint returned " + resp.Status, Details: oauthStatusDetails(resp.StatusCode)}
 	}
 
 	var payload struct {
