@@ -58,7 +58,30 @@ func normalizeAPIError(operation string, statusCode int, resp *http.Response, _ 
 			}
 		}
 	}
+	apiErr.Details = append(apiErr.Details, authStatusDetails(statusCode)...)
 	return apiErr
+}
+
+func authStatusDetails(statusCode int) []string {
+	switch statusCode {
+	case http.StatusUnauthorized:
+		return []string{"the API rejected the OAuth bearer token; verify the token URL matches the API base URL and the client credentials are valid"}
+	case http.StatusForbidden:
+		return []string{"OAuth token acquisition succeeded, but the API denied this operation; verify the client is allowed to create data analyses, has the required scopes/roles, and is configured for this API environment"}
+	default:
+		return nil
+	}
+}
+
+func oauthStatusDetails(statusCode int) []string {
+	switch statusCode {
+	case http.StatusUnauthorized:
+		return []string{"the OAuth token endpoint rejected the client credentials; verify the client ID, client secret, and token URL"}
+	case http.StatusForbidden:
+		return []string{"the OAuth token endpoint denied token issuance; verify the client is allowed to use client-credentials flow, requested scopes, and this token endpoint environment"}
+	default:
+		return nil
+	}
 }
 
 func firstNonEmpty(values ...string) string {

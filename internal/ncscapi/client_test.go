@@ -32,7 +32,7 @@ func TestOAuthTokenAcquisitionInjectionAndReuse(t *testing.T) {
 		case "/v1/data-analyses":
 			assertBearer(t, r)
 			if r.Method == http.MethodPost {
-				writeJSON(t, w, http.StatusOK, createdPayload())
+				writeJSON(t, w, http.StatusAccepted, createdPayload())
 				return
 			}
 			if r.Method == http.MethodGet {
@@ -169,6 +169,61 @@ func TestValidationErrorNormalizationIncludesTraceAndNoSecrets(t *testing.T) {
 	assertNoSecrets(t, message)
 }
 
+func TestForbiddenAnalysisErrorExplainsAuthorization(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/oauth/token" {
+			assertTokenRequest(t, r)
+			writeJSON(t, w, http.StatusOK, map[string]any{"access_token": testAccessToken, "token_type": "Bearer", "expires_in": 3600})
+			return
+		}
+		assertBearer(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"insufficient_scope","error_description":"missing data-analysis:create"}`))
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL, server.URL+"/oauth/token")
+	_, err := client.CreateAnalysis(context.Background(), newOtherRequest(t))
+	if err == nil {
+		t.Fatal("CreateAnalysis error = nil, want forbidden error")
+	}
+	message := err.Error()
+	for _, want := range []string{"create data analysis", "status 403", "Forbidden", "OAuth token acquisition succeeded", "allowed to create data analyses", "scopes/roles", "API environment"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("error %q missing %q", message, want)
+		}
+	}
+	assertNoSecrets(t, message)
+}
+
+func TestOAuthForbiddenErrorExplainsTokenAuthorization(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/oauth/token" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		assertTokenRequest(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"invalid_scope"}`))
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL, server.URL+"/oauth/token")
+	_, err := client.CreateAnalysis(context.Background(), newOtherRequest(t))
+	if err == nil {
+		t.Fatal("CreateAnalysis error = nil, want oauth forbidden error")
+	}
+	message := err.Error()
+	for _, want := range []string{"create data analysis", "request oauth token", "status 403", "oauth token endpoint", "denied token issuance", "client-credentials flow", "token endpoint environment"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("error %q missing %q", message, want)
+		}
+	}
+	assertNoSecrets(t, message)
+}
+
 func newTestClient(t *testing.T, baseURL, tokenURL string) *Client {
 	t.Helper()
 	client, err := NewClient(Config{BaseURL: baseURL, TokenURL: tokenURL, ClientID: testClientID, ClientSecret: testClientSecret})
@@ -201,6 +256,9 @@ func assertTokenRequest(t *testing.T, r *http.Request) {
 	}
 	if r.Form.Get("grant_type") != "client_credentials" {
 		t.Fatalf("grant_type = %q, want client_credentials", r.Form.Get("grant_type"))
+	}
+	if r.Form.Get("scope") != "openid" {
+		t.Fatalf("scope = %q, want openid", r.Form.Get("scope"))
 	}
 	if strings.Contains(r.URL.RawQuery, testClientSecret) {
 		t.Fatalf("client secret leaked in URL: %s", r.URL.String())
