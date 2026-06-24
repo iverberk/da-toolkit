@@ -123,6 +123,57 @@ func TestRunCreatesAnalysisUploadsAndCleansOnlySuccessfulArtifacts(t *testing.T)
 	}
 }
 
+func TestRunCreatesMalwareAnalysisWithZipPasswordsWithoutPersistingThem(t *testing.T) {
+	dir := t.TempDir()
+	sourceA := writeFile(t, dir, "a.zip", "alpha")
+	sourceB := writeFile(t, dir, "b.bin", "beta")
+	secretPassword := "malware-zip-secret"
+	sas := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "results") {
+			t.Fatalf("unexpected result retrieval path: %s", r.URL.Path)
+		}
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer sas.Close()
+	fake := &fakeMalwareCreator{sasURLs: map[string]string{
+		"a.zip": sas.URL + "/a?se=2099-01-01T00:00:00Z",
+		"b.bin": sas.URL + "/b?se=2099-01-01T00:00:00Z",
+	}, wantZipPasswords: map[string]string{"a.zip": secretPassword}}
+	checkpoint := filepath.Join(dir, "checkpoint.json")
+	var stdout bytes.Buffer
+	res, err := Run(context.Background(), Options{
+		Files:          []string{sourceA, sourceB},
+		WorkspaceDir:   filepath.Join(dir, "workspace"),
+		CheckpointPath: checkpoint,
+		AssumeYes:      true,
+		AnalysisType:   AnalysisTypeMalware,
+		ZipPasswords:   map[string]string{sourceA: secretPassword},
+		API:            fake,
+		Stdout:         &stdout,
+	})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if fake.calls != 1 {
+		t.Fatalf("CreateAnalysis calls = %d, want 1", fake.calls)
+	}
+	for _, file := range res.Files {
+		if file.Status != StatusUploaded {
+			t.Fatalf("status = %s, want uploaded", file.Status)
+		}
+	}
+	checkpointBytes, err := os.ReadFile(checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for label, value := range map[string]string{"checkpoint": string(checkpointBytes), "stdout": stdout.String()} {
+		if strings.Contains(value, secretPassword) || strings.Contains(value, "zip_password") {
+			t.Fatalf("%s leaked zip password metadata: %s", label, value)
+		}
+	}
+}
+
 func TestResumeContinuesFromPersistedUploadedBlocksAndCommits(t *testing.T) {
 	dir := t.TempDir()
 	artifact := writeFile(t, dir, "artifact.enc", "abcdefghijkl")
@@ -305,6 +356,36 @@ func decryptArtifact(t *testing.T, path string, key []byte) ([]byte, int) {
 type fakeCreator struct {
 	calls   int
 	sasURLs map[string]string
+}
+
+type fakeMalwareCreator struct {
+	calls            int
+	sasURLs          map[string]string
+	wantZipPasswords map[string]string
+}
+
+func (f *fakeMalwareCreator) CreateAnalysis(_ context.Context, request generated.StoreDataAnalysisRequest) (*generated.DataAnalysisCreatedResource, error) {
+	f.calls++
+	malware, err := request.AsDataAnalysisMalwareData()
+	if err != nil {
+		return nil, err
+	}
+	files := make([]generated.DataAnalysisFileUploadResource, 0, len(malware.Files))
+	for _, file := range malware.Files {
+		if file.AesKey == "" || file.Hash == nil || *file.Hash == "" {
+			return nil, io.ErrUnexpectedEOF
+		}
+		wantPassword, shouldHavePassword := f.wantZipPasswords[file.Name]
+		if shouldHavePassword {
+			if file.ZipPassword == nil || *file.ZipPassword != wantPassword {
+				return nil, io.ErrUnexpectedEOF
+			}
+		} else if file.ZipPassword != nil {
+			return nil, io.ErrUnexpectedEOF
+		}
+		files = append(files, generated.DataAnalysisFileUploadResource{Name: file.Name, SasUrl: f.sasURLs[file.Name]})
+	}
+	return &generated.DataAnalysisCreatedResource{Id: uuid.MustParse("22222222-2222-2222-2222-222222222222"), Type: generated.DataAnalysisTypeMalware, Files: files}, nil
 }
 
 func (f *fakeCreator) CreateAnalysis(_ context.Context, request generated.StoreDataAnalysisRequest) (*generated.DataAnalysisCreatedResource, error) {

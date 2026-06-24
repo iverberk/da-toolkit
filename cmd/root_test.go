@@ -34,11 +34,15 @@ func resetUploadCommandFlags() {
 		checkpointPath string
 		resume         bool
 		yes            bool
+		analysisType   string
+		zipPasswords   []string
 	}{}
 	uploadCmd.Flags().VisitAll(func(flag *pflag.Flag) {
 		_ = flag.Value.Set(flag.DefValue)
 		flag.Changed = false
 	})
+	uploadFlags.analysisType = "other"
+	uploadFlags.zipPasswords = nil
 }
 
 func TestHelpIncludesCommandGroupsAndSecretConvention(t *testing.T) {

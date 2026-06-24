@@ -25,13 +25,15 @@ var uploadFlags struct {
 	checkpointPath string
 	resume         bool
 	yes            bool
+	analysisType   string
+	zipPasswords   []string
 }
 
 // uploadCmd represents the upload command
 var uploadCmd = &cobra.Command{
 	Use:   "upload [flags] <file> [file...]",
-	Short: "create an other analysis and upload local files",
-	Long:  "Create one other data-analysis for local files, encrypt each file, upload encrypted artifacts, and persist non-secret resume metadata.",
+	Short: "create an analysis and upload local files",
+	Long:  "Create one other or malware data-analysis for local files, encrypt each file, upload encrypted artifacts, and persist non-secret resume metadata.",
 	Args: func(cmd *cobra.Command, args []string) error {
 		if uploadFlags.resume {
 			return nil
@@ -39,9 +41,21 @@ var uploadCmd = &cobra.Command{
 		if len(args) == 0 {
 			return errors.New("at least one local file is required unless --resume is used")
 		}
-		return nil
+		switch uploadFlags.analysisType {
+		case upload.AnalysisTypeOther, upload.AnalysisTypeMalware:
+			return nil
+		default:
+			return fmt.Errorf("unsupported analysis type %q (supported: other, malware)", uploadFlags.analysisType)
+		}
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
+		zipPasswords, err := parseZipPasswordFlags(uploadFlags.zipPasswords)
+		if err != nil {
+			return err
+		}
+		if len(zipPasswords) > 0 && uploadFlags.analysisType != upload.AnalysisTypeMalware {
+			return errors.New("--zip-password can only be used with --type malware")
+		}
 		var client upload.AnalysisCreator
 		if !uploadFlags.resume {
 			apiClient, err := ncscapi.NewClient(ncscapi.Config{
@@ -62,12 +76,14 @@ var uploadCmd = &cobra.Command{
 		}
 		ctx, cancel := context.WithCancel(cmd.Context())
 		defer cancel()
-		_, err := upload.Run(ctx, upload.Options{
+		_, err = upload.Run(ctx, upload.Options{
 			Files:          args,
 			WorkspaceDir:   workspace,
 			CheckpointPath: uploadFlags.checkpointPath,
 			Resume:         uploadFlags.resume,
 			AssumeYes:      uploadFlags.yes,
+			AnalysisType:   uploadFlags.analysisType,
+			ZipPasswords:   zipPasswords,
 			API:            client,
 			Stdin:          os.Stdin,
 			Stdout:         cmd.OutOrStdout(),
@@ -83,9 +99,36 @@ func init() {
 	uploadCmd.Flags().StringVar(&uploadFlags.clientSecret, "client-secret", "", "OAuth client secret (or DA_TOOLKIT_CLIENT_SECRET; memory-only)")
 	uploadCmd.Flags().StringVar(&uploadFlags.workspaceDir, "workspace", "", "directory for encrypted artifacts and checkpoint metadata")
 	uploadCmd.Flags().StringVar(&uploadFlags.checkpointPath, "checkpoint", "", "checkpoint file for restart-resume metadata")
+	uploadCmd.Flags().StringVar(&uploadFlags.analysisType, "type", upload.AnalysisTypeOther, "data-analysis type to create (other or malware)")
+	uploadCmd.Flags().StringArrayVar(&uploadFlags.zipPasswords, "zip-password", nil, "malware zip password as file=password; repeat per protected file (memory-only)")
 	uploadCmd.Flags().BoolVar(&uploadFlags.resume, "resume", false, "resume from the checkpoint without creating a replacement data-analysis")
 	uploadCmd.Flags().BoolVar(&uploadFlags.yes, "yes", false, "delete successfully uploaded encrypted artifacts without prompting")
 	rootCmd.AddCommand(uploadCmd)
+}
+
+func parseZipPasswordFlags(entries []string) (map[string]string, error) {
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	passwords := make(map[string]string, len(entries))
+	for _, entry := range entries {
+		if strings.TrimSpace(entry) == "" {
+			continue
+		}
+		file, password, ok := strings.Cut(entry, "=")
+		file = strings.TrimSpace(file)
+		if !ok || file == "" || password == "" {
+			return nil, errors.New("--zip-password must use file=password with a non-empty file and password")
+		}
+		passwords[file] = password
+		if abs, err := filepath.Abs(file); err == nil {
+			passwords[abs] = password
+		}
+	}
+	if len(passwords) == 0 {
+		return nil, nil
+	}
+	return passwords, nil
 }
 
 func firstNonEmpty(values ...string) string {
