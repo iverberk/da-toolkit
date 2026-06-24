@@ -242,6 +242,32 @@ func newOtherRequest(t *testing.T) generated.StoreDataAnalysisRequest {
 	return request
 }
 
+func TestNewMalwareAnalysisRequestIncludesOptionalZipPasswords(t *testing.T) {
+	hashA := "hash-a"
+	hashB := "hash-b"
+	password := "zip-secret"
+	request, err := NewMalwareAnalysisRequest([]generated.MalwareDataAnalysisFile{
+		{Name: "a.zip", AesKey: "memory-only-aes-key-a", Hash: &hashA, ZipPassword: &password},
+		{Name: "b.bin", AesKey: "memory-only-aes-key-b", Hash: &hashB},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewMalwareAnalysisRequest returned error: %v", err)
+	}
+	malware, err := request.AsDataAnalysisMalwareData()
+	if err != nil {
+		t.Fatalf("AsDataAnalysisMalwareData returned error: %v", err)
+	}
+	if malware.Type != generated.Malware || len(malware.Files) != 2 {
+		t.Fatalf("malware request = %+v, want malware with two files", malware)
+	}
+	if malware.Files[0].ZipPassword == nil || *malware.Files[0].ZipPassword != password {
+		t.Fatalf("first zip password = %v, want provided password", malware.Files[0].ZipPassword)
+	}
+	if malware.Files[1].ZipPassword != nil {
+		t.Fatalf("second zip password = %v, want omitted", *malware.Files[1].ZipPassword)
+	}
+}
+
 func assertTokenRequest(t *testing.T, r *http.Request) {
 	t.Helper()
 	if r.Method != http.MethodPost {

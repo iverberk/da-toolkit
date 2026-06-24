@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"da-toolkit/internal/ncscapi"
 	"da-toolkit/internal/ncscapi/generated"
 	"github.com/google/uuid"
 )
@@ -24,6 +25,9 @@ const (
 	StatusUploaded = "uploaded"
 	StatusFailed   = "failed"
 	StatusSkipped  = "skipped"
+
+	AnalysisTypeOther   = "other"
+	AnalysisTypeMalware = "malware"
 )
 
 type AnalysisCreator interface {
@@ -36,6 +40,8 @@ type Options struct {
 	CheckpointPath  string
 	Resume          bool
 	AssumeYes       bool
+	AnalysisType    string
+	ZipPasswords    map[string]string
 	API             AnalysisCreator
 	UploadBlockSize int64
 	Now             func() time.Time
@@ -71,9 +77,9 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	}
 	if cp.AnalysisID == "" {
 		if opts.API == nil {
-			return Result{}, errors.New("api client is required to create an other analysis")
+			return Result{}, fmt.Errorf("api client is required to create a %s analysis", opts.AnalysisType)
 		}
-		created, err := createOtherAnalysis(ctx, opts.API, cp, aesKeys)
+		created, err := createAnalysis(ctx, opts.API, cp, aesKeys, opts)
 		if err != nil {
 			return Result{}, err
 		}
@@ -123,6 +129,9 @@ func validateOptions(opts Options) Options {
 	if opts.UploadBlockSize <= 0 {
 		opts.UploadBlockSize = DefaultUploadBlockSize
 	}
+	if opts.AnalysisType == "" {
+		opts.AnalysisType = AnalysisTypeOther
+	}
 	if opts.CheckpointPath == "" {
 		opts.CheckpointPath = filepath.Join(opts.WorkspaceDir, "upload-checkpoint.json")
 	}
@@ -130,6 +139,17 @@ func validateOptions(opts Options) Options {
 		opts.WorkspaceDir = filepath.Dir(opts.CheckpointPath)
 	}
 	return opts
+}
+
+func createAnalysis(ctx context.Context, api AnalysisCreator, cp Checkpoint, aesKeys map[string]string, opts Options) (*generated.DataAnalysisCreatedResource, error) {
+	switch opts.AnalysisType {
+	case AnalysisTypeOther:
+		return createOtherAnalysis(ctx, api, cp, aesKeys)
+	case AnalysisTypeMalware:
+		return createMalwareAnalysis(ctx, api, cp, aesKeys, opts.ZipPasswords)
+	default:
+		return nil, fmt.Errorf("unsupported analysis type %q", opts.AnalysisType)
+	}
 }
 
 func createOtherAnalysis(ctx context.Context, api AnalysisCreator, cp Checkpoint, aesKeys map[string]string) (*generated.DataAnalysisCreatedResource, error) {
@@ -142,11 +162,44 @@ func createOtherAnalysis(ctx context.Context, api AnalysisCreator, cp Checkpoint
 		hash := file.Hash
 		files = append(files, generated.DataAnalysisFile{Name: file.Name, AesKey: key, Hash: &hash})
 	}
-	var req generated.StoreDataAnalysisRequest
-	if err := req.FromDataAnalysisOtherData(generated.DataAnalysisOtherData{Files: files, ManualAnalysisAllowed: generated.True, Type: generated.Other}); err != nil {
+	req, err := ncscapi.NewOtherAnalysisRequest(files, nil)
+	if err != nil {
 		return nil, err
 	}
 	return api.CreateAnalysis(ctx, req)
+}
+
+func createMalwareAnalysis(ctx context.Context, api AnalysisCreator, cp Checkpoint, aesKeys map[string]string, zipPasswords map[string]string) (*generated.DataAnalysisCreatedResource, error) {
+	files := make([]generated.MalwareDataAnalysisFile, 0, len(cp.Files))
+	for _, file := range cp.Files {
+		key := aesKeys[file.Name]
+		if key == "" {
+			return nil, fmt.Errorf("missing in-memory AES key for %s", file.Name)
+		}
+		hash := file.Hash
+		malwareFile := generated.MalwareDataAnalysisFile{Name: file.Name, AesKey: key, Hash: &hash}
+		if password, ok := zipPasswordForFile(zipPasswords, file); ok {
+			malwareFile.ZipPassword = &password
+		}
+		files = append(files, malwareFile)
+	}
+	req, err := ncscapi.NewMalwareAnalysisRequest(files, nil)
+	if err != nil {
+		return nil, err
+	}
+	return api.CreateAnalysis(ctx, req)
+}
+
+func zipPasswordForFile(zipPasswords map[string]string, file CheckpointFile) (string, bool) {
+	if len(zipPasswords) == 0 {
+		return "", false
+	}
+	for _, key := range []string{file.Name, file.SourcePath, filepath.Base(file.SourcePath)} {
+		if password, ok := zipPasswords[key]; ok {
+			return password, true
+		}
+	}
+	return "", false
 }
 
 func printSummary(w io.Writer, cp Checkpoint) {
