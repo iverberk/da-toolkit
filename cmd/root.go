@@ -11,7 +11,7 @@ import (
 var rootCmd = &cobra.Command{
 	Use:           "da-toolkit",
 	Short:         "CLI-first toolkit for data-analysis workflows.",
-	Long:          "Upload files, retrieve results, and run acquisition workflows.",
+	Long:          "Create, inspect, and retrieve data-analyses, and run acquisition workflows.",
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }

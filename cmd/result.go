@@ -99,11 +99,11 @@ var newResultAPI = func() (resultAPI, error) {
 	return ncscResultAPI{client: client}, nil
 }
 
-// resultCmd represents the result command
+// resultCmd represents the analysis command.
 var resultCmd = &cobra.Command{
-	Use:   "result",
-	Short: "retrieve analysis results",
-	Long:  "List data-analyses, inspect result metadata, and download available result archives or files.",
+	Use:   "analysis",
+	Short: "work with data-analyses",
+	Long:  "Create data-analyses, list and read data-analysis metadata, and download available result archives or files.",
 	Args:  cobra.NoArgs,
 }
 
@@ -244,7 +244,7 @@ func init() {
 		command.Flags().BoolVar(&resultFlags.overwrite, "overwrite", false, "overwrite an existing output file")
 	}
 
-	resultCmd.AddCommand(resultListCmd, resultReadCmd, resultArchiveCmd, resultFileCmd)
+	resultCmd.AddCommand(uploadCmd, resultListCmd, resultReadCmd, resultArchiveCmd, resultFileCmd)
 	rootCmd.AddCommand(resultCmd)
 }
 

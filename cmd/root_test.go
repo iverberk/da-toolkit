@@ -107,7 +107,7 @@ func TestHelpIsConciseAndUsesCobraCommandList(t *testing.T) {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
 
-	for _, want := range []string{"Upload files, retrieve results, and run acquisition workflows.", "Available Commands:", "upload", "result", "acquisition"} {
+	for _, want := range []string{"Create, inspect, and retrieve data-analyses, and run acquisition workflows.", "Available Commands:", "analysis", "acquisition"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("help missing %q:\n%s", want, stdout)
 		}
@@ -117,7 +117,7 @@ func TestHelpIsConciseAndUsesCobraCommandList(t *testing.T) {
 			t.Fatalf("help includes verbose custom text %q:\n%s", removed, stdout)
 		}
 	}
-	for _, removed := range []string{"analysis", "gui"} {
+	for _, removed := range []string{"upload", "result", "gui"} {
 		if commandNamed(rootCmd, removed) || strings.Contains(stdout, "  "+removed+" ") {
 			t.Fatalf("help includes removed placeholder command %q:\n%s", removed, stdout)
 		}
@@ -133,8 +133,8 @@ func commandNamed(command *cobra.Command, name string) bool {
 	return false
 }
 
-func TestPlaceholderCommandsAreRemoved(t *testing.T) {
-	for _, name := range []string{"analysis", "gui"} {
+func TestRemovedTopLevelCommandsAreUnavailable(t *testing.T) {
+	for _, name := range []string{"upload", "result", "gui"} {
 		t.Run(name, func(t *testing.T) {
 			_, _, err := executeCommand(name)
 			if err == nil || !strings.Contains(err.Error(), "unknown command") {
@@ -159,19 +159,19 @@ func TestAcquisitionPocHelpDocumentsBootstrapAndRuntimeFlags(t *testing.T) {
 	}
 }
 
-func TestUploadRequiresFilesOrResume(t *testing.T) {
-	_, _, err := executeCommand("upload")
+func TestAnalysisCreateRequiresFilesOrResume(t *testing.T) {
+	_, _, err := executeCommand("analysis", "create")
 	if err == nil || !strings.Contains(err.Error(), "at least one local file is required") {
 		t.Fatalf("error = %v, want missing file validation", err)
 	}
 }
 
-func TestUploadResumeReadsCheckpointBeforeCredentials(t *testing.T) {
+func TestAnalysisCreateResumeReadsCheckpointBeforeCredentials(t *testing.T) {
 	t.Setenv("DA_TOOLKIT_CLIENT_ID", "")
 	t.Setenv("DA_TOOLKIT_CLIENT_SECRET", "")
 	t.Setenv("DA_TOOLKIT_TOKEN_URL", "")
 	missing := filepath.Join(t.TempDir(), "missing-checkpoint.json")
-	_, _, err := executeCommand("upload", "--resume", "--checkpoint", missing)
+	_, _, err := executeCommand("analysis", "create", "--resume", "--checkpoint", missing)
 	if err == nil || !strings.Contains(err.Error(), "read checkpoint") {
 		t.Fatalf("error = %v, want checkpoint read error", err)
 	}

@@ -34,8 +34,8 @@ var uploadFlags struct {
 
 // uploadCmd represents the upload command
 var uploadCmd = &cobra.Command{
-	Use:   "upload [flags] <file> [file...]",
-	Short: "create an analysis and upload local files",
+	Use:   "create [flags] <file> [file...]",
+	Short: "create a data-analysis and upload local files",
 	Long:  "Create one other, malware, or forensic data-analysis for local files, encrypt each file, upload encrypted artifacts, and persist non-secret resume metadata.",
 	Args: func(cmd *cobra.Command, args []string) error {
 		if uploadFlags.resume {
@@ -79,10 +79,10 @@ var uploadCmd = &cobra.Command{
 		var client upload.AnalysisCreator
 		if !uploadFlags.resume {
 			apiClient, err := ncscapi.NewClient(ncscapi.Config{
-				BaseURL:      firstNonEmpty(uploadFlags.baseURL, os.Getenv("DA_TOOLKIT_API_BASE_URL"), ncscapi.DefaultBaseURL),
-				TokenURL:     firstNonEmpty(uploadFlags.tokenURL, os.Getenv("DA_TOOLKIT_TOKEN_URL")),
-				ClientID:     firstNonEmpty(uploadFlags.clientID, os.Getenv("DA_TOOLKIT_CLIENT_ID")),
-				ClientSecret: firstNonEmpty(uploadFlags.clientSecret, os.Getenv("DA_TOOLKIT_CLIENT_SECRET")),
+				BaseURL:      firstNonEmpty(uploadFlags.baseURL, resultFlags.baseURL, os.Getenv("DA_TOOLKIT_API_BASE_URL"), ncscapi.DefaultBaseURL),
+				TokenURL:     firstNonEmpty(uploadFlags.tokenURL, resultFlags.tokenURL, os.Getenv("DA_TOOLKIT_TOKEN_URL")),
+				ClientID:     firstNonEmpty(uploadFlags.clientID, resultFlags.clientID, os.Getenv("DA_TOOLKIT_CLIENT_ID")),
+				ClientSecret: firstNonEmpty(uploadFlags.clientSecret, resultFlags.clientSecret, os.Getenv("DA_TOOLKIT_CLIENT_SECRET")),
 				HTTPClient:   &http.Client{Timeout: 0},
 			})
 			if err != nil {
@@ -129,7 +129,6 @@ func init() {
 	uploadCmd.Flags().BoolVar(&uploadFlags.manualAllowed, "manual-analysis-allowed", false, "allow analysts to view forensic source data")
 	uploadCmd.Flags().BoolVar(&uploadFlags.resume, "resume", false, "resume from the checkpoint without creating a replacement data-analysis")
 	uploadCmd.Flags().BoolVar(&uploadFlags.yes, "yes", false, "delete successfully uploaded encrypted artifacts without prompting")
-	rootCmd.AddCommand(uploadCmd)
 }
 
 func parseZipPasswordFlags(entries []string) (map[string]string, error) {
