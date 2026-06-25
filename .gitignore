@@ -1,3 +1,6 @@
 .da-toolkit/*
 .envrc
 datk
+internal/acquire/embedded/site-packages/linux-arm64/*
+!internal/acquire/embedded/site-packages/linux-arm64/.gitkeep
+!internal/acquire/embedded/site-packages/linux-arm64/placeholder.txt

@@ -63,7 +63,7 @@ The upload/create workflow persists checkpoint state so interrupted uploads can 
 
 ### Possible Adjacent Touchpoints
 
-- `cmd/result.go` - repo evidence shows `resultCmd.AddCommand(uploadCmd, ...)`, so `uploadCmd` is already the `analysis create` subcommand; only touch hierarchy wiring if the command hierarchy story has changed this shape.
+- `cmd/result.go` - repo evidence shows `resultCmd.AddCommand(analysisCreateCmd, ...)`, so `analysisCreateCmd` is already the `analysis create` subcommand; only touch hierarchy wiring if the command hierarchy story has changed this shape.
 - `internal/upload/workflow_test.go` - has existing fake `CreateAnalysis` call counters and resume/SAS-expiry tests that directly match the new no-accidental-create requirements.
 - `cmd/root_test.go` - may need CLI help/flag assertions for `--new`, strict `--resume`, and updated help text.
 

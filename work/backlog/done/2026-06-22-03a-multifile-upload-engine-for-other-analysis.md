@@ -66,7 +66,7 @@ The first upload workflow should use pre-existing local files and not depend on 
 
 ### Layer Boundaries
 
-- Touch first: Cobra `upload` command wiring in `cmd/`, new internal workflow code for encryption/hash/upload/checkpoint/resume/summary/cleanup, and existing `internal/ncscapi` wrapper only where API-facing helpers are necessary.
+- Touch first: Cobra `analysis create` command wiring in `cmd/`, new internal workflow code for encryption/hash/upload/checkpoint/resume/summary/cleanup, and existing `internal/ncscapi` wrapper only where API-facing helpers are necessary.
 - Avoid unless evidence emerges: `internal/ncscapi/generated/` and OpenAPI spec files, result retrieval paths (`GetResultFile`, `GetResultArchive`, `cmd/result.go`), acquisition/Dissect packaging paths, GUI behavior, and replacement data-analysis creation after SAS expiry.
 
 ### Verification Plan
@@ -91,14 +91,14 @@ The first upload workflow should use pre-existing local files and not depend on 
 ## Implementation feedback (2026-06-24 21:11)
 
 - Gate result: FAIL.
-- Restart-resume is not fully satisfied at the CLI surface: `cmd/upload.go` constructs an authenticated NCSC API client before calling `upload.Run`, so `upload --resume` still requires OAuth client ID, client secret, and token URL even though resume should use retained checkpoint/artifact state and must not create a replacement data-analysis. Evidence: `env -u DA_TOOLKIT_CLIENT_ID -u DA_TOOLKIT_CLIENT_SECRET -u DA_TOOLKIT_TOKEN_URL /tmp/da-toolkit upload --resume --checkpoint /tmp/nonexistent-checkpoint.json` returns `oauth client id is required` before reading the checkpoint.
+- Restart-resume is not fully satisfied at the CLI surface: `cmd/upload.go` constructs an authenticated NCSC API client before calling `upload.Run`, so `analysis create --resume` still requires OAuth client ID, client secret, and token URL even though resume should use retained checkpoint/artifact state and must not create a replacement data-analysis. Evidence: `env -u DA_TOOLKIT_CLIENT_ID -u DA_TOOLKIT_CLIENT_SECRET -u DA_TOOLKIT_TOKEN_URL /tmp/da-toolkit analysis create --resume --checkpoint /tmp/nonexistent-checkpoint.json` returns `oauth client id is required` before reading the checkpoint.
 - The checkpoint persists `sas_url` in `internal/upload/checkpoint.go`, and `README.md` documents SAS URL persistence. A SAS URL is a bearer capability URL, so this conflicts with the requirement to persist only non-secret metadata such as SAS expiry metadata and upload checkpoint state, and with the security review expectation for upload checkpoints.
 - Per-file status is not visibly reported during upload on the CLI. `uploadOne` updates checkpoint `Message` values after each staged block, but the only user-facing writes in `internal/upload/workflow.go` are the end-of-run summary and cleanup prompt. This does not satisfy the acceptance criterion that per-file upload status is visible during and after the run.
 - Baseline checks passed: `go build -o /tmp/da-toolkit .`, `go test ./...`, `go vet ./...`, and `gofmt -l main.go cmd internal/config internal/ncscapi internal/upload` produced no failures/unformatted files. Coverage check passed for touched scope with `go test ./... -cover` (`internal/upload` 80.2%, `internal/ncscapi` 77.7%, `cmd` 51.2%).
 
 ## Implementation update (2026-06-24 22:00)
 
-- Addressed: `upload --resume` reads checkpoints without constructing an OAuth client; checkpoints no longer serialize SAS bearer URLs; CLI now prints per-file upload status updates.
+- Addressed: `analysis create --resume` reads checkpoints without constructing an OAuth client; checkpoints no longer serialize SAS bearer URLs; CLI now prints per-file upload status updates.
 - Not addressed: none.
 - Status: done
 
@@ -111,8 +111,8 @@ The first upload workflow should use pre-existing local files and not depend on 
 ## Implementation feedback (2026-06-24 21:36)
 
 - Gate result: FAIL.
-- Checkpoint files are not always protected with owner-only permissions even though SAS URLs are persisted as operational secrets. `saveCheckpoint` writes new files with `0600`, but when rewriting an existing checkpoint it preserves the existing mode. Evidence: creating a checkpoint with mode `0644`, then running `/tmp/da-toolkit upload --resume --checkpoint "$checkpoint" --workspace "$tmp"` leaves `stat -c %a "$checkpoint"` at `644`. This violates the technical requirement and ADR/guideline expectation that persisted SAS-bearing checkpoints are owner-only protected.
-- Previously reported items are addressed: `upload --resume` now reads the checkpoint before OAuth setup, SAS URL persistence is backed by the new ADR/guideline update, and per-file upload status is printed during upload.
+- Checkpoint files are not always protected with owner-only permissions even though SAS URLs are persisted as operational secrets. `saveCheckpoint` writes new files with `0600`, but when rewriting an existing checkpoint it preserves the existing mode. Evidence: creating a checkpoint with mode `0644`, then running `/tmp/da-toolkit analysis create --resume --checkpoint "$checkpoint" --workspace "$tmp"` leaves `stat -c %a "$checkpoint"` at `644`. This violates the technical requirement and ADR/guideline expectation that persisted SAS-bearing checkpoints are owner-only protected.
+- Previously reported items are addressed: `analysis create --resume` now reads the checkpoint before OAuth setup, SAS URL persistence is backed by the new ADR/guideline update, and per-file upload status is printed during upload.
 - Baseline checks passed: `go build -o /tmp/da-toolkit .`, `go test ./...`, `go vet ./...`, and `gofmt -l main.go cmd internal/config internal/ncscapi internal/upload` produced no failures/unformatted files. Coverage check passed for touched scope with `go test ./... -cover` (`internal/upload` 79.6%, `internal/ncscapi` 77.7%, `cmd` 72.7%).
 - Security review: completed; the remaining finding is checkpoint permission enforcement for persisted SAS bearer capability URLs.
 
@@ -126,6 +126,6 @@ The first upload workflow should use pre-existing local files and not depend on 
 
 - Gate result: PASS.
 - Functional checklist passed for the implemented upload workflow: multi-file `other` analysis creation with `manual_analysis_allowed=true`, per-file AES-GCM encryption/hash metadata, SAS block upload, per-file status output, checkpoint persistence without OAuth/client/AES secrets, restart-resume from uploaded block indexes, completed-file skip, missing-artifact failure isolation, expired-SAS failure without replacement data-analysis creation, single cleanup prompt/confirmed cleanup for successful artifacts, and no result retrieval were covered by `internal/upload` and `cmd` tests plus focused CLI probes.
-- Latest implementation feedback is addressed: `upload --resume` reads checkpoint state before OAuth setup, per-file status is printed, SAS URL persistence is now backed by ADR/guideline updates, and checkpoint rewrites enforce owner-only `0600` permissions. Evidence: `env -u DA_TOOLKIT_CLIENT_ID -u DA_TOOLKIT_CLIENT_SECRET -u DA_TOOLKIT_TOKEN_URL /tmp/da-toolkit upload --resume --checkpoint /tmp/nonexistent-da-toolkit-checkpoint.json` reports `read checkpoint` rather than an OAuth credential error; rewriting a permissive temporary checkpoint through `/tmp/da-toolkit upload --resume --checkpoint "$checkpoint" --workspace "$tmp"` changed its mode from `0644` to `600`.
+- Latest implementation feedback is addressed: `analysis create --resume` reads checkpoint state before OAuth setup, per-file status is printed, SAS URL persistence is now backed by ADR/guideline updates, and checkpoint rewrites enforce owner-only `0600` permissions. Evidence: `env -u DA_TOOLKIT_CLIENT_ID -u DA_TOOLKIT_CLIENT_SECRET -u DA_TOOLKIT_TOKEN_URL /tmp/da-toolkit analysis create --resume --checkpoint /tmp/nonexistent-da-toolkit-checkpoint.json` reports `read checkpoint` rather than an OAuth credential error; rewriting a permissive temporary checkpoint through `/tmp/da-toolkit analysis create --resume --checkpoint "$checkpoint" --workspace "$tmp"` changed its mode from `0644` to `600`.
 - Baseline checks passed: `go build -o /tmp/da-toolkit .`, `go test ./...`, `go vet ./...`, and `gofmt -l main.go cmd internal/config internal/ncscapi internal/upload` produced no failures/unformatted files. Touched-scope coverage showed no material regression with `go test ./... -cover` (`internal/upload` 79.2%, `internal/ncscapi` 77.7%, `cmd` 72.7%).
 - Security review: completed for upload/checkpoint/resume paths; no remaining security finding in the changed upload code after owner-only checkpoint permission enforcement. Checkpoint SAS URL persistence is accepted by `work/adr/2026-06-24-persist-sas-urls-for-restart-resume.md` and `work/guidelines/api-upload.md`.

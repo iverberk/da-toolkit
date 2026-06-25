@@ -31,7 +31,7 @@ If another repo document conflicts with this file, follow this file.
 
 ## Domain Rules
 
-- CLI workflows: load `work/guidelines/cli-workflows.md` for CLI commands, workflow orchestration, acquisition flow, GUI parity, cleanup, and user prompts.
+- CLI workflows: load `work/guidelines/cli-workflows.md` for CLI commands, workflow orchestration, acquire flow, GUI parity, cleanup, and user prompts.
 - Go: load `work/guidelines/go.md` for Go source, Cobra command structure, command generation, formatting, tests, and vetting.
 - API upload: load `work/guidelines/api-upload.md` for NCSC API, OAuth, SAS upload, encryption, hashing, resume, retry, checkpoints, and result retrieval.
 - Packaging/licensing: load `work/guidelines/packaging-and-licensing.md` for single-binary distribution, embedded Python, Dissect/acquire, React asset embedding, EUPL, AGPL, notices, and release packaging.
@@ -39,7 +39,7 @@ If another repo document conflicts with this file, follow this file.
 ## Technology Rules
 
 - Go is the intended primary implementation language; follow `work/guidelines/go.md` for Go source and Cobra command changes.
-- Dissect/acquire must run exactly for acquisition workflows; use packaging/licensing guidance before changing acquisition integration.
+- Dissect/acquire must run exactly for acquire workflows; use packaging/licensing guidance before changing acquire integration.
 - go-embed-python is the current candidate for embedded Python/acquire packaging; record an ADR before committing to it.
 - React/shadcn is the intended GUI stack; GUI work should remain a local webserver convenience wrapper over CLI workflow semantics.
 - NCSC Data Analysis API integration must use OAuth client credentials and preserve memory-only handling for secrets.
@@ -50,7 +50,7 @@ If another repo document conflicts with this file, follow this file.
 - Review Go source and Cobra command changes against `work/guidelines/go.md`.
 - Review API, encryption, upload, resume, or result retrieval changes against `work/guidelines/api-upload.md`.
 - Review packaging, dependency embedding, release, or license changes against `work/guidelines/packaging-and-licensing.md`.
-- Require ADR discussion before changing licensing posture, embedded Python approach, acquisition execution model, or restart-resume semantics.
+- Require ADR discussion before changing licensing posture, embedded Python approach, acquire execution model, or restart-resume semantics.
 
 ## Loading Rules
 
@@ -79,7 +79,7 @@ If another repo document conflicts with this file, follow this file.
 
 ## Command Rules
 
-- Build (always): `go build -o /tmp/da-toolkit .`
+- Build (always): `scripts/build-binary.sh /tmp/da-toolkit`
 - Test (always): `go test ./...`
 - Lint/static analysis (always): `go vet ./...`
 - Formatting (always): `gofmt -w main.go cmd internal/config`; inspect `git diff` afterward so formatting changes are intentional.
