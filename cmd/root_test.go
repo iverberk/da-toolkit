@@ -65,7 +65,6 @@ func resetUploadCommandFlags() {
 		_ = flag.Value.Set(flag.DefValue)
 		flag.Changed = false
 	})
-	uploadFlags.analysisType = "other"
 	uploadFlags.zipPasswords = nil
 	uploadFlags.requested = nil
 	uploadFlags.diskKeys = nil
@@ -161,9 +160,21 @@ func TestAcquisitionPocHelpDocumentsBootstrapAndRuntimeFlags(t *testing.T) {
 }
 
 func TestAnalysisCreateRequiresFilesOrResume(t *testing.T) {
-	_, _, err := executeCommand("analysis", "create")
+	_, _, err := executeCommand("analysis", "create", "--type", "other")
 	if err == nil || !strings.Contains(err.Error(), "at least one local file is required") {
 		t.Fatalf("error = %v, want missing file validation", err)
+	}
+}
+
+func TestAnalysisCreateRequiresTypeForFreshCreation(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "evidence.txt")
+	if err := os.WriteFile(source, []byte("evidence"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := executeCommand("analysis", "create", source)
+	if err == nil || !strings.Contains(err.Error(), "--type is required") {
+		t.Fatalf("error = %v, want missing type validation", err)
 	}
 }
 
@@ -186,10 +197,13 @@ func TestAnalysisCreateHelpDocumentsAutoResumeAndNew(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute returned error: %v; stderr=%s", err, stderr)
 	}
-	for _, want := range []string{"--resume", "usable incomplete checkpoint", "--new", "fresh data-analysis"} {
+	for _, want := range []string{"--resume", "usable incomplete checkpoint", "--new", "fresh data-analysis", "--type", "required for fresh creation"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("help missing %q:\n%s", want, stdout)
 		}
+	}
+	if strings.Contains(stdout, "default \"other\"") {
+		t.Fatalf("help documents old type default:\n%s", stdout)
 	}
 }
 

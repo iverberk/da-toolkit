@@ -37,7 +37,7 @@ var uploadFlags struct {
 var uploadCmd = &cobra.Command{
 	Use:   "create [flags] <file> [file...]",
 	Short: "create a data-analysis and upload local files",
-	Long:  "Create one other, malware, or forensic data-analysis for local files, encrypt each file, upload encrypted artifacts, and persist protected resume metadata. When a usable incomplete checkpoint exists, create resumes it automatically. Use --resume to require resume and --new to require fresh creation.",
+	Long:  "Create one explicitly selected other, malware, or forensic data-analysis for local files, encrypt each file, upload encrypted artifacts, and persist protected resume metadata. When a usable incomplete checkpoint exists, create resumes it automatically. Use --type for fresh creation, --resume to require resume, and --new to require fresh creation.",
 	Args: func(cmd *cobra.Command, args []string) error {
 		if uploadFlags.resume {
 			return nil
@@ -45,12 +45,7 @@ var uploadCmd = &cobra.Command{
 		if uploadFlags.new && len(args) == 0 {
 			return errors.New("at least one local file is required with --new")
 		}
-		switch uploadFlags.analysisType {
-		case upload.AnalysisTypeOther, upload.AnalysisTypeMalware, upload.AnalysisTypeForensic:
-			return nil
-		default:
-			return fmt.Errorf("unsupported analysis type %q (supported: other, malware, forensic)", uploadFlags.analysisType)
-		}
+		return nil
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		zipPasswords, err := parseZipPasswordFlags(uploadFlags.zipPasswords)
@@ -99,6 +94,16 @@ var uploadCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if mode == upload.RunModeCreate {
+			if !cmd.Flags().Changed("type") {
+				return errors.New("--type is required for fresh data-analysis creation (supported: other, malware, forensic)")
+			}
+			switch uploadFlags.analysisType {
+			case upload.AnalysisTypeOther, upload.AnalysisTypeMalware, upload.AnalysisTypeForensic:
+			default:
+				return fmt.Errorf("unsupported analysis type %q (supported: other, malware, forensic)", uploadFlags.analysisType)
+			}
+		}
 		if mode == upload.RunModeCreate && len(args) == 0 {
 			return errors.New("at least one local file is required unless a usable checkpoint can be resumed")
 		}
@@ -131,7 +136,7 @@ func init() {
 	uploadCmd.Flags().StringVar(&uploadFlags.clientSecret, "client-secret", "", "OAuth client secret (or DA_TOOLKIT_CLIENT_SECRET; memory-only)")
 	uploadCmd.Flags().StringVar(&uploadFlags.workspaceDir, "workspace", "", "directory for encrypted artifacts and checkpoint metadata")
 	uploadCmd.Flags().StringVar(&uploadFlags.checkpointPath, "checkpoint", "", "checkpoint file for restart-resume metadata")
-	uploadCmd.Flags().StringVar(&uploadFlags.analysisType, "type", upload.AnalysisTypeOther, "data-analysis type to create (other, malware, or forensic)")
+	uploadCmd.Flags().StringVar(&uploadFlags.analysisType, "type", "", "data-analysis type to create (required for fresh creation: other, malware, or forensic)")
 	uploadCmd.Flags().StringArrayVar(&uploadFlags.zipPasswords, "zip-password", nil, "malware zip password as file=password; repeat per protected file (memory-only)")
 	uploadCmd.Flags().StringArrayVar(&uploadFlags.requested, "requested-analysis", nil, "forensic requested analyses as file=analysis[,analysis...]; repeat per file")
 	uploadCmd.Flags().StringArrayVar(&uploadFlags.diskKeys, "disk-encryption-key", nil, "forensic disk encryption key as file=key; repeat per encrypted disk image (memory-only)")
