@@ -14,5 +14,5 @@
 
 ## Decisions
 - Target `windows-amd64` and `linux-amd64` for v1.
-- Treat live-system acquisition as a v1 requirement.
+- Treat live-system acquire as a v1 requirement.
 - Ask before deleting encrypted artifacts after upload success.

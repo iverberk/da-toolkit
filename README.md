@@ -12,9 +12,9 @@ go build -o /tmp/da-toolkit .
 
 Use `/tmp/da-toolkit` in the examples below, or replace it with the path to your built binary.
 
-## Upload workflow overview
+## Analysis create workflow overview
 
-The `upload` command is for pre-existing local files. It does not run acquisition tooling and it does not retrieve analysis results.
+The `analysis create` command is for pre-existing local files. It does not run acquire tooling and it does not retrieve analysis results.
 
 For each run, the tool:
 
@@ -39,6 +39,7 @@ The command does **not** retrieve results. Use future/result commands separately
 You need:
 
 - One or more local files to upload.
+- Data-analysis type for fresh creation (`other`, `malware`, or `forensic`).
 - OAuth token URL for the NCSC API.
 - OAuth client ID.
 - OAuth client secret.
@@ -57,7 +58,7 @@ Credentials can be supplied by flags or environment variables:
 
 Prefer environment variables or a secret manager for credentials. The toolkit does not persist the client secret, OAuth token, or AES keys.
 
-## First upload
+## First analysis creation
 
 Example with environment variables:
 
@@ -66,7 +67,8 @@ export DA_TOOLKIT_TOKEN_URL="https://example.identity.provider/oauth/token"
 export DA_TOOLKIT_CLIENT_ID="your-client-id"
 export DA_TOOLKIT_CLIENT_SECRET="your-client-secret"
 
-/tmp/da-toolkit upload \
+/tmp/da-toolkit analysis create \
+  --type other \
   --workspace ./upload-workspace/case-001 \
   ./evidence/file-a.bin \
   ./evidence/file-b.bin
@@ -75,11 +77,12 @@ export DA_TOOLKIT_CLIENT_SECRET="your-client-secret"
 Example with flags:
 
 ```sh
-/tmp/da-toolkit upload \
+/tmp/da-toolkit analysis create \
   --base-url "https://api.ncsc.nl/data-analysis" \
   --token-url "https://example.identity.provider/oauth/token" \
   --client-id "your-client-id" \
   --client-secret "your-client-secret" \
+  --type other \
   --workspace ./upload-workspace/case-001 \
   ./evidence/file-a.bin \
   ./evidence/file-b.bin
@@ -98,7 +101,7 @@ Answer `y` to delete only encrypted artifacts for successfully uploaded files. F
 Use `--yes` to skip the prompt and delete successfully uploaded encrypted artifacts automatically:
 
 ```sh
-/tmp/da-toolkit upload --yes --workspace ./upload-workspace/case-001 ./evidence/file-a.bin
+/tmp/da-toolkit analysis create --yes --type other --workspace ./upload-workspace/case-001 ./evidence/file-a.bin
 ```
 
 ## Resume an incomplete upload
@@ -108,7 +111,7 @@ Resume uses the checkpoint and encrypted artifacts left on disk. It does not cre
 Use the same workspace or checkpoint path from the original run:
 
 ```sh
-/tmp/da-toolkit upload \
+/tmp/da-toolkit analysis create \
   --resume \
   --workspace ./upload-workspace/case-001
 ```
@@ -116,7 +119,7 @@ Use the same workspace or checkpoint path from the original run:
 Or resume with an explicit checkpoint file:
 
 ```sh
-/tmp/da-toolkit upload \
+/tmp/da-toolkit analysis create \
   --resume \
   --checkpoint ./upload-workspace/case-001/upload-checkpoint.json
 ```
@@ -157,7 +160,7 @@ Encrypted artifacts are operationally sensitive. Keep the workspace protected an
 ## Command reference
 
 ```text
-da-toolkit upload [flags] <file> [file...]
+da-toolkit analysis create [flags] <file> [file...]
 
 Flags:
   --base-url string       NCSC Data Analysis API base URL (or DA_TOOLKIT_API_BASE_URL)
@@ -166,8 +169,16 @@ Flags:
   --client-secret string  OAuth client secret (or DA_TOOLKIT_CLIENT_SECRET; memory-only)
   --workspace string      Directory for encrypted artifacts and checkpoint metadata
   --checkpoint string     Checkpoint file for restart-resume metadata
+  --type string           Data-analysis type to create (required for fresh creation: other, malware, or forensic)
   --resume                Resume from the checkpoint without creating a replacement data-analysis
+  --new                   Create a fresh data-analysis only when no checkpoint exists at the resolved target
   --yes                   Delete successfully uploaded encrypted artifacts without prompting
 ```
 
-Additional implemented command groups include `result` for retrieval and `acquire poc` for the embedded Python acquire proof of concept.
+Additional implemented command groups include `result` for retrieval and `acquire` for running Dissect/acquire through the embedded Python runtime:
+
+```text
+da-toolkit acquire [acquire args/options...]
+```
+
+Arguments after `da-toolkit acquire` are forwarded directly to Dissect/acquire. Runtime and dependency artifacts are prepared and reused under `.da-toolkit/acquire` in the current working directory by default, or under `DA_TOOLKIT_ACQUIRE_HOME` when set.

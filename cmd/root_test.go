@@ -2,8 +2,11 @@ package cmd
 
 import (
 	"bytes"
+	"context"
+	"da-toolkit/internal/acquire"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -12,7 +15,6 @@ import (
 )
 
 func executeCommand(args ...string) (string, string, error) {
-	resetAcquisitionCommandFlags()
 	resetUploadCommandFlags()
 	resetResultCommandFlags()
 	var stdout, stderr bytes.Buffer
@@ -23,25 +25,14 @@ func executeCommand(args ...string) (string, string, error) {
 	rootCmd.SetOut(os.Stdout)
 	rootCmd.SetErr(os.Stderr)
 	rootCmd.SetArgs(nil)
-	resetAcquisitionCommandFlags()
+	resetAcquireCommandFlags()
 	resetUploadCommandFlags()
 	resetResultCommandFlags()
 	return stdout.String(), stderr.String(), err
 }
 
-func resetAcquisitionCommandFlags() {
-	acquisitionPocFlags = struct {
-		runtimeDir      string
-		sitePackagesDir string
-		bootstrap       bool
-		cleanup         bool
-		acquireArgs     []string
-	}{}
-	acquisitionPocCmd.Flags().VisitAll(func(flag *pflag.Flag) {
-		_ = flag.Value.Set(flag.DefValue)
-		flag.Changed = false
-	})
-	acquisitionPocFlags.acquireArgs = nil
+func resetAcquireCommandFlags() {
+	runAcquire = acquire.Run
 }
 
 func resetUploadCommandFlags() {
@@ -61,7 +52,7 @@ func resetUploadCommandFlags() {
 		diskKeys       []string
 		manualAllowed  bool
 	}{}
-	uploadCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+	analysisCreateCmd.Flags().VisitAll(func(flag *pflag.Flag) {
 		_ = flag.Value.Set(flag.DefValue)
 		flag.Changed = false
 	})
@@ -107,13 +98,13 @@ func TestHelpIsConciseAndUsesCobraCommandList(t *testing.T) {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
 
-	for _, want := range []string{"Create, inspect, and retrieve data-analyses, and run acquisition workflows.", "Available Commands:", "analysis", "acquire"} {
+	for _, want := range []string{"Create, inspect, and retrieve data-analyses, and run acquire workflows.", "Available Commands:", "analysis", "acquire"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("help missing %q:\n%s", want, stdout)
 		}
 	}
 	if commandNamed(rootCmd, "acquisition") || strings.Contains(stdout, "  acquisition ") {
-		t.Fatalf("help includes old acquisition command:\n%s", stdout)
+		t.Fatalf("help includes old acquire command name:\n%s", stdout)
 	}
 	for _, removed := range []string{"Command groups:", "Configuration:", "User-facing errors are written as:", "Do not store API credentials"} {
 		if strings.Contains(stdout, removed) {
@@ -147,17 +138,44 @@ func TestRemovedTopLevelCommandsAreUnavailable(t *testing.T) {
 	}
 }
 
-func TestAcquirePocHelpDocumentsBootstrapAndRuntimeFlags(t *testing.T) {
-	stdout, stderr, err := executeCommand("acquire", "poc", "--help")
+func TestAcquireForwardsHelpToEmbeddedAcquire(t *testing.T) {
+	var gotArgs []string
+	runAcquire = func(_ context.Context, opts acquire.Options) error {
+		gotArgs = append([]string(nil), opts.Args...)
+		_, _ = opts.Stdout.Write([]byte("Dissect acquire help\n"))
+		return nil
+	}
+	stdout, stderr, err := executeCommand("acquire", "--help")
 	if err != nil {
 		t.Fatalf("Execute returned error: %v; stderr=%s", err, stderr)
 	}
-	if stderr != "" {
-		t.Fatalf("stderr = %q, want empty", stderr)
+	if !reflect.DeepEqual(gotArgs, []string{"--help"}) {
+		t.Fatalf("forwarded args = %v, want --help", gotArgs)
 	}
-	for _, want := range []string{"go-embed-python", "--bootstrap", "--runtime-dir", "--site-packages", "--cleanup", "does not require Internet access"} {
-		if !strings.Contains(stdout, want) {
-			t.Fatalf("acquire poc help missing %q:\n%s", want, stdout)
+	if !strings.Contains(stdout, "Dissect acquire help") {
+		t.Fatalf("stdout missing forwarded help:\n%s", stdout)
+	}
+}
+
+func TestAcquireForwardsArbitraryArgsAndHidesPocSurface(t *testing.T) {
+	var gotArgs []string
+	runAcquire = func(_ context.Context, opts acquire.Options) error {
+		gotArgs = append([]string(nil), opts.Args...)
+		return nil
+	}
+	_, _, err := executeCommand("acquire", "--output", "case.ad", "poc")
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if want := []string{"--output", "case.ad", "poc"}; !reflect.DeepEqual(gotArgs, want) {
+		t.Fatalf("forwarded args = %v, want %v", gotArgs, want)
+	}
+	if commandNamed(acquireCmd, "poc") {
+		t.Fatal("acquire poc is still registered as a public subcommand")
+	}
+	for _, removed := range []string{"runtime-dir", "site-packages", "bootstrap", "cleanup", "acquire-arg"} {
+		if acquireCmd.Flags().Lookup(removed) != nil || acquireCmd.PersistentFlags().Lookup(removed) != nil {
+			t.Fatalf("PoC-only flag %q is still registered", removed)
 		}
 	}
 }

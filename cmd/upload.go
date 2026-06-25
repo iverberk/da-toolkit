@@ -33,8 +33,8 @@ var uploadFlags struct {
 	manualAllowed  bool
 }
 
-// uploadCmd represents the upload command
-var uploadCmd = &cobra.Command{
+// analysisCreateCmd represents the analysis create command.
+var analysisCreateCmd = &cobra.Command{
 	Use:   "create [flags] <file> [file...]",
 	Short: "create a data-analysis and upload local files",
 	Long:  "Create one explicitly selected other, malware, or forensic data-analysis for local files, encrypt each file, upload encrypted artifacts, and persist protected resume metadata. When a usable incomplete checkpoint exists, create resumes it automatically. Use --type for fresh creation, --resume to require resume, and --new to require fresh creation.",
@@ -130,20 +130,20 @@ var uploadCmd = &cobra.Command{
 }
 
 func init() {
-	uploadCmd.Flags().StringVar(&uploadFlags.baseURL, "base-url", "", "NCSC Data Analysis API base URL (or DA_TOOLKIT_API_BASE_URL)")
-	uploadCmd.Flags().StringVar(&uploadFlags.tokenURL, "token-url", "", "OAuth token URL (or DA_TOOLKIT_TOKEN_URL)")
-	uploadCmd.Flags().StringVar(&uploadFlags.clientID, "client-id", "", "OAuth client ID (or DA_TOOLKIT_CLIENT_ID)")
-	uploadCmd.Flags().StringVar(&uploadFlags.clientSecret, "client-secret", "", "OAuth client secret (or DA_TOOLKIT_CLIENT_SECRET; memory-only)")
-	uploadCmd.Flags().StringVar(&uploadFlags.workspaceDir, "workspace", "", "directory for encrypted artifacts and checkpoint metadata")
-	uploadCmd.Flags().StringVar(&uploadFlags.checkpointPath, "checkpoint", "", "checkpoint file for restart-resume metadata")
-	uploadCmd.Flags().StringVar(&uploadFlags.analysisType, "type", "", "data-analysis type to create (required for fresh creation: other, malware, or forensic)")
-	uploadCmd.Flags().StringArrayVar(&uploadFlags.zipPasswords, "zip-password", nil, "malware zip password as file=password; repeat per protected file (memory-only)")
-	uploadCmd.Flags().StringArrayVar(&uploadFlags.requested, "requested-analysis", nil, "forensic requested analyses as file=analysis[,analysis...]; repeat per file")
-	uploadCmd.Flags().StringArrayVar(&uploadFlags.diskKeys, "disk-encryption-key", nil, "forensic disk encryption key as file=key; repeat per encrypted disk image (memory-only)")
-	uploadCmd.Flags().BoolVar(&uploadFlags.manualAllowed, "manual-analysis-allowed", false, "allow analysts to view forensic source data")
-	uploadCmd.Flags().BoolVar(&uploadFlags.resume, "resume", false, "strictly resume from a usable incomplete checkpoint and fail if none exists")
-	uploadCmd.Flags().BoolVar(&uploadFlags.new, "new", false, "create a fresh data-analysis only when no checkpoint exists at the resolved target")
-	uploadCmd.Flags().BoolVar(&uploadFlags.yes, "yes", false, "delete successfully uploaded encrypted artifacts without prompting")
+	analysisCreateCmd.Flags().StringVar(&uploadFlags.baseURL, "base-url", "", "NCSC Data Analysis API base URL (or DA_TOOLKIT_API_BASE_URL)")
+	analysisCreateCmd.Flags().StringVar(&uploadFlags.tokenURL, "token-url", "", "OAuth token URL (or DA_TOOLKIT_TOKEN_URL)")
+	analysisCreateCmd.Flags().StringVar(&uploadFlags.clientID, "client-id", "", "OAuth client ID (or DA_TOOLKIT_CLIENT_ID)")
+	analysisCreateCmd.Flags().StringVar(&uploadFlags.clientSecret, "client-secret", "", "OAuth client secret (or DA_TOOLKIT_CLIENT_SECRET; memory-only)")
+	analysisCreateCmd.Flags().StringVar(&uploadFlags.workspaceDir, "workspace", "", "directory for encrypted artifacts and checkpoint metadata")
+	analysisCreateCmd.Flags().StringVar(&uploadFlags.checkpointPath, "checkpoint", "", "checkpoint file for restart-resume metadata")
+	analysisCreateCmd.Flags().StringVar(&uploadFlags.analysisType, "type", "", "data-analysis type to create (required for fresh creation: other, malware, or forensic)")
+	analysisCreateCmd.Flags().StringArrayVar(&uploadFlags.zipPasswords, "zip-password", nil, "malware zip password as file=password; repeat per protected file (memory-only)")
+	analysisCreateCmd.Flags().StringArrayVar(&uploadFlags.requested, "requested-analysis", nil, "forensic requested analyses as file=analysis[,analysis...]; repeat per file")
+	analysisCreateCmd.Flags().StringArrayVar(&uploadFlags.diskKeys, "disk-encryption-key", nil, "forensic disk encryption key as file=key; repeat per encrypted disk image (memory-only)")
+	analysisCreateCmd.Flags().BoolVar(&uploadFlags.manualAllowed, "manual-analysis-allowed", false, "allow analysts to view forensic source data")
+	analysisCreateCmd.Flags().BoolVar(&uploadFlags.resume, "resume", false, "strictly resume from a usable incomplete checkpoint and fail if none exists")
+	analysisCreateCmd.Flags().BoolVar(&uploadFlags.new, "new", false, "create a fresh data-analysis only when no checkpoint exists at the resolved target")
+	analysisCreateCmd.Flags().BoolVar(&uploadFlags.yes, "yes", false, "delete successfully uploaded encrypted artifacts without prompting")
 }
 
 func parseZipPasswordFlags(entries []string) (map[string]string, error) {
