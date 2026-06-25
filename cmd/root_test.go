@@ -98,7 +98,7 @@ func resetResultCommandFlags() {
 	}
 }
 
-func TestHelpIncludesCommandGroupsAndSecretConvention(t *testing.T) {
+func TestHelpIsConciseAndUsesCobraCommandList(t *testing.T) {
 	stdout, stderr, err := executeCommand("--help")
 	if err != nil {
 		t.Fatalf("Execute returned error: %v; stderr=%s", err, stderr)
@@ -107,25 +107,38 @@ func TestHelpIncludesCommandGroupsAndSecretConvention(t *testing.T) {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
 
-	for _, want := range []string{"analysis", "upload", "result", "acquisition", "gui", "Future workflow settings must be non-secret only", "Do not store API credentials, OAuth tokens, or AES keys"} {
+	for _, want := range []string{"Upload files, retrieve results, and run acquisition workflows.", "Available Commands:", "upload", "result", "acquisition"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("help missing %q:\n%s", want, stdout)
 		}
 	}
+	for _, removed := range []string{"Command groups:", "Configuration:", "User-facing errors are written as:", "Do not store API credentials"} {
+		if strings.Contains(stdout, removed) {
+			t.Fatalf("help includes verbose custom text %q:\n%s", removed, stdout)
+		}
+	}
+	for _, removed := range []string{"analysis", "gui"} {
+		if commandNamed(rootCmd, removed) || strings.Contains(stdout, "  "+removed+" ") {
+			t.Fatalf("help includes removed placeholder command %q:\n%s", removed, stdout)
+		}
+	}
 }
 
-func TestPlaceholderCommandsDoNotRequireCredentials(t *testing.T) {
-	for _, name := range []string{"analysis", "acquisition", "gui"} {
+func commandNamed(command *cobra.Command, name string) bool {
+	for _, child := range command.Commands() {
+		if child.Name() == name {
+			return true
+		}
+	}
+	return false
+}
+
+func TestPlaceholderCommandsAreRemoved(t *testing.T) {
+	for _, name := range []string{"analysis", "gui"} {
 		t.Run(name, func(t *testing.T) {
-			stdout, stderr, err := executeCommand(name)
-			if err != nil {
-				t.Fatalf("Execute returned error: %v; stderr=%s", err, stderr)
-			}
-			if stderr != "" {
-				t.Fatalf("stderr = %q, want empty", stderr)
-			}
-			if !strings.Contains(stdout, "not implemented yet") || !strings.Contains(stdout, "does not require network access or credentials") {
-				t.Fatalf("placeholder output did not explain safe no-op behavior: %q", stdout)
+			_, _, err := executeCommand(name)
+			if err == nil || !strings.Contains(err.Error(), "unknown command") {
+				t.Fatalf("error = %v, want unknown command", err)
 			}
 		})
 	}
