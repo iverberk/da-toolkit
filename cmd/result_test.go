@@ -17,7 +17,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func TestResultListUsesPaginationAndOAuthWithoutLeakingSecrets(t *testing.T) {
+func TestAnalysisListUsesPaginationAndOAuthWithoutLeakingSecrets(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/oauth/token":
@@ -40,7 +40,7 @@ func TestResultListUsesPaginationAndOAuthWithoutLeakingSecrets(t *testing.T) {
 	}))
 	defer server.Close()
 
-	stdout, stderr, err := executeCommand("result", "list", "--base-url", server.URL, "--token-url", server.URL+"/oauth/token", "--client-id", testResultClientID, "--client-secret", testResultClientSecret, "--page", "2", "--size", "10")
+	stdout, stderr, err := executeCommand("analysis", "list", "--base-url", server.URL, "--token-url", server.URL+"/oauth/token", "--client-id", testResultClientID, "--client-secret", testResultClientSecret, "--page", "2", "--size", "10")
 	if err != nil {
 		t.Fatalf("Execute returned error: %v; stderr=%s", err, stderr)
 	}
@@ -52,7 +52,7 @@ func TestResultListUsesPaginationAndOAuthWithoutLeakingSecrets(t *testing.T) {
 	assertResultNoSecrets(t, stdout+stderr)
 }
 
-func TestResultReadOutputsFileAndResultMetadata(t *testing.T) {
+func TestAnalysisReadOutputsMetadataPayload(t *testing.T) {
 	withFakeResultAPI(t, fakeResultAPI{
 		read: analysisResults{
 			Payload: map[string]any{"id": testResultAnalysisID, "files": []map[string]any{{"name": "sample.bin", "results": []map[string]any{{"name": "report.json", "size": 11}}}}},
@@ -60,7 +60,7 @@ func TestResultReadOutputsFileAndResultMetadata(t *testing.T) {
 		},
 	})
 
-	stdout, stderr, err := executeCommand("result", "read", testResultAnalysisID)
+	stdout, stderr, err := executeCommand("analysis", "read", testResultAnalysisID)
 	if err != nil {
 		t.Fatalf("Execute returned error: %v; stderr=%s", err, stderr)
 	}
@@ -71,11 +71,11 @@ func TestResultReadOutputsFileAndResultMetadata(t *testing.T) {
 	}
 }
 
-func TestResultArgumentValidationDoesNotRequireCredentials(t *testing.T) {
+func TestAnalysisArgumentValidationDoesNotRequireCredentials(t *testing.T) {
 	t.Setenv("DA_TOOLKIT_CLIENT_ID", "")
 	t.Setenv("DA_TOOLKIT_CLIENT_SECRET", "")
 	t.Setenv("DA_TOOLKIT_TOKEN_URL", "")
-	_, _, err := executeCommand("result", "read", "not-a-uuid")
+	_, _, err := executeCommand("analysis", "read", "not-a-uuid")
 	if err == nil || !strings.Contains(err.Error(), "invalid analysis-id") {
 		t.Fatalf("error = %v, want invalid UUID", err)
 	}
@@ -84,14 +84,14 @@ func TestResultArgumentValidationDoesNotRequireCredentials(t *testing.T) {
 	}
 }
 
-func TestResultArchiveDownloadDoesNotOverwriteUnlessExplicit(t *testing.T) {
+func TestAnalysisArchiveDownloadDoesNotOverwriteUnlessExplicit(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "results.zip")
 	if err := os.WriteFile(out, []byte("existing"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	withFakeResultAPI(t, fakeResultAPI{read: analysisWithResult("report.json"), archive: ncscapi.Result{Body: []byte("zip-bytes")}})
 
-	_, _, err := executeCommand("result", "archive", testResultAnalysisID, "--output", out)
+	_, _, err := executeCommand("analysis", "archive", testResultAnalysisID, "--output", out)
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("error = %v, want overwrite protection", err)
 	}
@@ -103,7 +103,7 @@ func TestResultArchiveDownloadDoesNotOverwriteUnlessExplicit(t *testing.T) {
 		t.Fatalf("file content = %q, want existing", got)
 	}
 
-	stdout, stderr, err := executeCommand("result", "archive", testResultAnalysisID, "--output", out, "--overwrite")
+	stdout, stderr, err := executeCommand("analysis", "archive", testResultAnalysisID, "--output", out, "--overwrite")
 	if err != nil {
 		t.Fatalf("Execute returned error: %v; stderr=%s", err, stderr)
 	}
@@ -116,11 +116,11 @@ func TestResultArchiveDownloadDoesNotOverwriteUnlessExplicit(t *testing.T) {
 	}
 }
 
-func TestResultFileDownloadRequiresAvailableNamedResult(t *testing.T) {
+func TestAnalysisFileDownloadRequiresAvailableNamedResult(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "report.json")
 	withFakeResultAPI(t, fakeResultAPI{read: analysisWithResult("other.json"), file: ncscapi.Result{Body: []byte(`{"ok":true}`)}})
 
-	_, _, err := executeCommand("result", "file", testResultAnalysisID, "report.json", "--output", out)
+	_, _, err := executeCommand("analysis", "file", testResultAnalysisID, "report.json", "--output", out)
 	if err == nil || !strings.Contains(err.Error(), "does not report result file") {
 		t.Fatalf("error = %v, want missing result metadata", err)
 	}
@@ -129,7 +129,7 @@ func TestResultFileDownloadRequiresAvailableNamedResult(t *testing.T) {
 	}
 
 	withFakeResultAPI(t, fakeResultAPI{read: analysisWithResult("report.json"), file: ncscapi.Result{Body: []byte(`{"ok":true}`)}})
-	if _, stderr, err := executeCommand("result", "file", testResultAnalysisID, "report.json", "--output", out); err != nil {
+	if _, stderr, err := executeCommand("analysis", "file", testResultAnalysisID, "report.json", "--output", out); err != nil {
 		t.Fatalf("Execute returned error: %v; stderr=%s", err, stderr)
 	}
 	got, err := os.ReadFile(out)
@@ -141,10 +141,10 @@ func TestResultFileDownloadRequiresAvailableNamedResult(t *testing.T) {
 	}
 }
 
-func TestResultReadReportsNotFoundFromAPI(t *testing.T) {
+func TestAnalysisReadReportsNotFoundFromAPI(t *testing.T) {
 	withFakeResultAPI(t, fakeResultAPI{readErr: &ncscapi.APIError{Operation: "read data-analysis", StatusCode: http.StatusNotFound, Message: http.StatusText(http.StatusNotFound)}})
 
-	stdout, _, err := executeCommand("result", "read", testResultAnalysisID)
+	stdout, _, err := executeCommand("analysis", "read", testResultAnalysisID)
 	if err == nil || !strings.Contains(err.Error(), "status 404") || !strings.Contains(err.Error(), "Not Found") {
 		t.Fatalf("error = %v, want clear not-found API error", err)
 	}
@@ -153,11 +153,11 @@ func TestResultReadReportsNotFoundFromAPI(t *testing.T) {
 	}
 }
 
-func TestResultDownloadReportsNotFoundFromAPI(t *testing.T) {
+func TestAnalysisDownloadReportsNotFoundFromAPI(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "results.zip")
 	withFakeResultAPI(t, fakeResultAPI{read: analysisWithResult("report.json"), archiveErr: &ncscapi.APIError{Operation: "download result archive", StatusCode: http.StatusNotFound, Message: http.StatusText(http.StatusNotFound)}})
 
-	_, _, err := executeCommand("result", "archive", testResultAnalysisID, "--output", out)
+	_, _, err := executeCommand("analysis", "archive", testResultAnalysisID, "--output", out)
 	if err == nil || !strings.Contains(err.Error(), "status 404") || !strings.Contains(err.Error(), "Not Found") {
 		t.Fatalf("error = %v, want clear not-found API error", err)
 	}
@@ -166,11 +166,11 @@ func TestResultDownloadReportsNotFoundFromAPI(t *testing.T) {
 	}
 }
 
-func TestResultArchiveDownloadRequiresAvailableResults(t *testing.T) {
+func TestAnalysisArchiveDownloadRequiresAvailableResults(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "results.zip")
 	withFakeResultAPI(t, fakeResultAPI{read: analysisResults{Payload: map[string]any{"id": testResultAnalysisID}, Files: []fileResults{{Name: "sample.bin"}}}, archive: ncscapi.Result{Body: []byte("zip-bytes")}})
 
-	_, _, err := executeCommand("result", "archive", testResultAnalysisID, "--output", out)
+	_, _, err := executeCommand("analysis", "archive", testResultAnalysisID, "--output", out)
 	if err == nil || !strings.Contains(err.Error(), "does not report available results yet") {
 		t.Fatalf("error = %v, want unavailable results metadata error", err)
 	}
