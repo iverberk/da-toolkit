@@ -26,8 +26,9 @@ const (
 	StatusFailed   = "failed"
 	StatusSkipped  = "skipped"
 
-	AnalysisTypeOther   = "other"
-	AnalysisTypeMalware = "malware"
+	AnalysisTypeOther    = "other"
+	AnalysisTypeMalware  = "malware"
+	AnalysisTypeForensic = "forensic"
 )
 
 type AnalysisCreator interface {
@@ -35,18 +36,21 @@ type AnalysisCreator interface {
 }
 
 type Options struct {
-	Files           []string
-	WorkspaceDir    string
-	CheckpointPath  string
-	Resume          bool
-	AssumeYes       bool
-	AnalysisType    string
-	ZipPasswords    map[string]string
-	API             AnalysisCreator
-	UploadBlockSize int64
-	Now             func() time.Time
-	Stdin           io.Reader
-	Stdout          io.Writer
+	Files                 []string
+	WorkspaceDir          string
+	CheckpointPath        string
+	Resume                bool
+	AssumeYes             bool
+	AnalysisType          string
+	ZipPasswords          map[string]string
+	RequestedAnalyses     map[string][]string
+	DiskEncryptionKeys    map[string]string
+	ManualAnalysisAllowed bool
+	API                   AnalysisCreator
+	UploadBlockSize       int64
+	Now                   func() time.Time
+	Stdin                 io.Reader
+	Stdout                io.Writer
 }
 
 type FileSummary struct {
@@ -76,6 +80,9 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 		return Result{}, errors.New("checkpoint is missing analysis_id; restart the workflow manually")
 	}
 	if cp.AnalysisID == "" {
+		if err := validateCreateInputs(cp, opts); err != nil {
+			return Result{}, err
+		}
 		if opts.API == nil {
 			return Result{}, fmt.Errorf("api client is required to create a %s analysis", opts.AnalysisType)
 		}
@@ -147,9 +154,23 @@ func createAnalysis(ctx context.Context, api AnalysisCreator, cp Checkpoint, aes
 		return createOtherAnalysis(ctx, api, cp, aesKeys)
 	case AnalysisTypeMalware:
 		return createMalwareAnalysis(ctx, api, cp, aesKeys, opts.ZipPasswords)
+	case AnalysisTypeForensic:
+		return createForensicAnalysis(ctx, api, cp, aesKeys, opts.RequestedAnalyses, opts.DiskEncryptionKeys, opts.ManualAnalysisAllowed)
 	default:
 		return nil, fmt.Errorf("unsupported analysis type %q", opts.AnalysisType)
 	}
+}
+
+func validateCreateInputs(cp Checkpoint, opts Options) error {
+	if opts.AnalysisType != AnalysisTypeForensic {
+		return nil
+	}
+	for _, file := range cp.Files {
+		if _, ok := requestedAnalysesForFile(opts.RequestedAnalyses, file); !ok {
+			return fmt.Errorf("missing requested analyses for forensic file %s", file.Name)
+		}
+	}
+	return nil
 }
 
 func createOtherAnalysis(ctx context.Context, api AnalysisCreator, cp Checkpoint, aesKeys map[string]string) (*generated.DataAnalysisCreatedResource, error) {
@@ -190,6 +211,31 @@ func createMalwareAnalysis(ctx context.Context, api AnalysisCreator, cp Checkpoi
 	return api.CreateAnalysis(ctx, req)
 }
 
+func createForensicAnalysis(ctx context.Context, api AnalysisCreator, cp Checkpoint, aesKeys map[string]string, requestedAnalyses map[string][]string, diskEncryptionKeys map[string]string, manualAnalysisAllowed bool) (*generated.DataAnalysisCreatedResource, error) {
+	files := make([]generated.ForensicDataAnalysisFile, 0, len(cp.Files))
+	for _, file := range cp.Files {
+		key := aesKeys[file.Name]
+		if key == "" {
+			return nil, fmt.Errorf("missing in-memory AES key for %s", file.Name)
+		}
+		requested, ok := requestedAnalysesForFile(requestedAnalyses, file)
+		if !ok {
+			return nil, fmt.Errorf("missing requested analyses for forensic file %s", file.Name)
+		}
+		hash := file.Hash
+		forensicFile := generated.ForensicDataAnalysisFile{Name: file.Name, AesKey: key, Hash: &hash, RequestedAnalyses: requested}
+		if diskKey, ok := diskEncryptionKeyForFile(diskEncryptionKeys, file); ok {
+			forensicFile.DiskEncryptionKey = &diskKey
+		}
+		files = append(files, forensicFile)
+	}
+	req, err := ncscapi.NewForensicAnalysisRequest(files, manualAnalysisAllowed, nil)
+	if err != nil {
+		return nil, err
+	}
+	return api.CreateAnalysis(ctx, req)
+}
+
 func zipPasswordForFile(zipPasswords map[string]string, file CheckpointFile) (string, bool) {
 	if len(zipPasswords) == 0 {
 		return "", false
@@ -200,6 +246,34 @@ func zipPasswordForFile(zipPasswords map[string]string, file CheckpointFile) (st
 		}
 	}
 	return "", false
+}
+
+func requestedAnalysesForFile(requestedAnalyses map[string][]string, file CheckpointFile) ([]string, bool) {
+	if len(requestedAnalyses) == 0 {
+		return nil, false
+	}
+	for _, key := range fileLookupKeys(file) {
+		if analyses, ok := requestedAnalyses[key]; ok && len(analyses) > 0 {
+			return append([]string(nil), analyses...), true
+		}
+	}
+	return nil, false
+}
+
+func diskEncryptionKeyForFile(diskEncryptionKeys map[string]string, file CheckpointFile) (string, bool) {
+	if len(diskEncryptionKeys) == 0 {
+		return "", false
+	}
+	for _, key := range fileLookupKeys(file) {
+		if diskKey, ok := diskEncryptionKeys[key]; ok {
+			return diskKey, true
+		}
+	}
+	return "", false
+}
+
+func fileLookupKeys(file CheckpointFile) []string {
+	return []string{file.Name, file.SourcePath, filepath.Base(file.SourcePath)}
 }
 
 func printSummary(w io.Writer, cp Checkpoint) {
