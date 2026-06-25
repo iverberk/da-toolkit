@@ -24,6 +24,7 @@ var uploadFlags struct {
 	workspaceDir   string
 	checkpointPath string
 	resume         bool
+	new            bool
 	yes            bool
 	analysisType   string
 	zipPasswords   []string
@@ -36,13 +37,13 @@ var uploadFlags struct {
 var uploadCmd = &cobra.Command{
 	Use:   "create [flags] <file> [file...]",
 	Short: "create a data-analysis and upload local files",
-	Long:  "Create one other, malware, or forensic data-analysis for local files, encrypt each file, upload encrypted artifacts, and persist non-secret resume metadata.",
+	Long:  "Create one other, malware, or forensic data-analysis for local files, encrypt each file, upload encrypted artifacts, and persist protected resume metadata. When a usable incomplete checkpoint exists, create resumes it automatically. Use --resume to require resume and --new to require fresh creation.",
 	Args: func(cmd *cobra.Command, args []string) error {
 		if uploadFlags.resume {
 			return nil
 		}
-		if len(args) == 0 {
-			return errors.New("at least one local file is required unless --resume is used")
+		if uploadFlags.new && len(args) == 0 {
+			return errors.New("at least one local file is required with --new")
 		}
 		switch uploadFlags.analysisType {
 		case upload.AnalysisTypeOther, upload.AnalysisTypeMalware, upload.AnalysisTypeForensic:
@@ -76,8 +77,33 @@ var uploadCmd = &cobra.Command{
 		if cmd.Flags().Changed("manual-analysis-allowed") && uploadFlags.analysisType != upload.AnalysisTypeForensic {
 			return errors.New("--manual-analysis-allowed can only be used with --type forensic")
 		}
+		workspace := uploadFlags.workspaceDir
+		if workspace == "" {
+			workspace = defaultUploadWorkspace(args)
+		}
+		opts, mode, err := upload.Plan(upload.Options{
+			Files:                 args,
+			WorkspaceDir:          workspace,
+			CheckpointPath:        uploadFlags.checkpointPath,
+			Resume:                uploadFlags.resume,
+			New:                   uploadFlags.new,
+			AssumeYes:             uploadFlags.yes,
+			AnalysisType:          uploadFlags.analysisType,
+			ZipPasswords:          zipPasswords,
+			RequestedAnalyses:     requested,
+			DiskEncryptionKeys:    diskKeys,
+			ManualAnalysisAllowed: uploadFlags.manualAllowed,
+			Stdin:                 os.Stdin,
+			Stdout:                cmd.OutOrStdout(),
+		})
+		if err != nil {
+			return err
+		}
+		if mode == upload.RunModeCreate && len(args) == 0 {
+			return errors.New("at least one local file is required unless a usable checkpoint can be resumed")
+		}
 		var client upload.AnalysisCreator
-		if !uploadFlags.resume {
+		if mode == upload.RunModeCreate {
 			apiClient, err := ncscapi.NewClient(ncscapi.Config{
 				BaseURL:      firstNonEmpty(uploadFlags.baseURL, resultFlags.baseURL, os.Getenv("DA_TOOLKIT_API_BASE_URL"), ncscapi.DefaultBaseURL),
 				TokenURL:     firstNonEmpty(uploadFlags.tokenURL, resultFlags.tokenURL, os.Getenv("DA_TOOLKIT_TOKEN_URL")),
@@ -90,27 +116,10 @@ var uploadCmd = &cobra.Command{
 			}
 			client = apiClient
 		}
-		workspace := uploadFlags.workspaceDir
-		if workspace == "" {
-			workspace = defaultUploadWorkspace(args)
-		}
 		ctx, cancel := context.WithCancel(cmd.Context())
 		defer cancel()
-		_, err = upload.Run(ctx, upload.Options{
-			Files:                 args,
-			WorkspaceDir:          workspace,
-			CheckpointPath:        uploadFlags.checkpointPath,
-			Resume:                uploadFlags.resume,
-			AssumeYes:             uploadFlags.yes,
-			AnalysisType:          uploadFlags.analysisType,
-			ZipPasswords:          zipPasswords,
-			RequestedAnalyses:     requested,
-			DiskEncryptionKeys:    diskKeys,
-			ManualAnalysisAllowed: uploadFlags.manualAllowed,
-			API:                   client,
-			Stdin:                 os.Stdin,
-			Stdout:                cmd.OutOrStdout(),
-		})
+		opts.API = client
+		_, err = upload.Run(ctx, opts)
 		return err
 	},
 }
@@ -127,7 +136,8 @@ func init() {
 	uploadCmd.Flags().StringArrayVar(&uploadFlags.requested, "requested-analysis", nil, "forensic requested analyses as file=analysis[,analysis...]; repeat per file")
 	uploadCmd.Flags().StringArrayVar(&uploadFlags.diskKeys, "disk-encryption-key", nil, "forensic disk encryption key as file=key; repeat per encrypted disk image (memory-only)")
 	uploadCmd.Flags().BoolVar(&uploadFlags.manualAllowed, "manual-analysis-allowed", false, "allow analysts to view forensic source data")
-	uploadCmd.Flags().BoolVar(&uploadFlags.resume, "resume", false, "resume from the checkpoint without creating a replacement data-analysis")
+	uploadCmd.Flags().BoolVar(&uploadFlags.resume, "resume", false, "strictly resume from a usable incomplete checkpoint and fail if none exists")
+	uploadCmd.Flags().BoolVar(&uploadFlags.new, "new", false, "create a fresh data-analysis only when no checkpoint exists at the resolved target")
 	uploadCmd.Flags().BoolVar(&uploadFlags.yes, "yes", false, "delete successfully uploaded encrypted artifacts without prompting")
 }
 

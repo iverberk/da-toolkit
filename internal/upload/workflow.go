@@ -40,6 +40,7 @@ type Options struct {
 	WorkspaceDir          string
 	CheckpointPath        string
 	Resume                bool
+	New                   bool
 	AssumeYes             bool
 	AnalysisType          string
 	ZipPasswords          map[string]string
@@ -67,7 +68,11 @@ type Result struct {
 }
 
 func Run(ctx context.Context, opts Options) (Result, error) {
-	opts = validateOptions(opts)
+	opts, mode, err := Plan(opts)
+	if err != nil {
+		return Result{}, err
+	}
+	opts.Resume = mode == RunModeResume
 
 	cp, aesKeys, err := prepareCheckpoint(opts)
 	if err != nil {
