@@ -7,11 +7,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
 func executeCommand(args ...string) (string, string, error) {
 	resetUploadCommandFlags()
+	resetResultCommandFlags()
 	var stdout, stderr bytes.Buffer
 	rootCmd.SetOut(&stdout)
 	rootCmd.SetErr(&stderr)
@@ -21,6 +23,7 @@ func executeCommand(args ...string) (string, string, error) {
 	rootCmd.SetErr(os.Stderr)
 	rootCmd.SetArgs(nil)
 	resetUploadCommandFlags()
+	resetResultCommandFlags()
 	return stdout.String(), stderr.String(), err
 }
 
@@ -50,6 +53,34 @@ func resetUploadCommandFlags() {
 	uploadFlags.diskKeys = nil
 }
 
+func resetResultCommandFlags() {
+	resultFlags = struct {
+		baseURL       string
+		tokenURL      string
+		clientID      string
+		clientSecret  string
+		page          int
+		size          int
+		filters       string
+		sort          string
+		search        string
+		searchFields  string
+		caseSensitive bool
+		output        string
+		overwrite     bool
+	}{}
+	for _, command := range []*cobra.Command{resultCmd, resultListCmd, resultReadCmd, resultArchiveCmd, resultFileCmd} {
+		command.Flags().VisitAll(func(flag *pflag.Flag) {
+			_ = flag.Value.Set(flag.DefValue)
+			flag.Changed = false
+		})
+		command.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
+			_ = flag.Value.Set(flag.DefValue)
+			flag.Changed = false
+		})
+	}
+}
+
 func TestHelpIncludesCommandGroupsAndSecretConvention(t *testing.T) {
 	stdout, stderr, err := executeCommand("--help")
 	if err != nil {
@@ -67,7 +98,7 @@ func TestHelpIncludesCommandGroupsAndSecretConvention(t *testing.T) {
 }
 
 func TestPlaceholderCommandsDoNotRequireCredentials(t *testing.T) {
-	for _, name := range []string{"analysis", "result", "acquisition", "gui"} {
+	for _, name := range []string{"analysis", "acquisition", "gui"} {
 		t.Run(name, func(t *testing.T) {
 			stdout, stderr, err := executeCommand(name)
 			if err != nil {
