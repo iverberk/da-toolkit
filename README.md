@@ -170,4 +170,4 @@ Flags:
   --yes                   Delete successfully uploaded encrypted artifacts without prompting
 ```
 
-Other command groups exist in the CLI (`analysis`, `result`, `acquisition`, `gui`) but are currently placeholders unless implemented by later stories.
+Additional implemented command groups include `result` for retrieval and `acquisition poc` for the embedded Python acquire proof of concept.

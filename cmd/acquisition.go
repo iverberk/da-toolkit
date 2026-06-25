@@ -21,11 +21,8 @@ var acquisitionPocFlags struct {
 var acquisitionCmd = &cobra.Command{
 	Use:   "acquisition",
 	Short: "run live-system acquisition workflows",
-	Long:  "Acquisition workflow placeholder. This command does not require network access or credentials.",
+	Long:  "Run live-system acquisition workflows.",
 	Args:  cobra.NoArgs,
-	Run: func(cmd *cobra.Command, args []string) {
-		placeholder(cmd, "Acquisition")
-	},
 }
 
 var acquisitionPocCmd = &cobra.Command{
