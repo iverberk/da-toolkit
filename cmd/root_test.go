@@ -53,6 +53,7 @@ func resetUploadCommandFlags() {
 		workspaceDir   string
 		checkpointPath string
 		resume         bool
+		new            bool
 		yes            bool
 		analysisType   string
 		zipPasswords   []string
@@ -172,11 +173,32 @@ func TestAnalysisCreateResumeReadsCheckpointBeforeCredentials(t *testing.T) {
 	t.Setenv("DA_TOOLKIT_TOKEN_URL", "")
 	missing := filepath.Join(t.TempDir(), "missing-checkpoint.json")
 	_, _, err := executeCommand("analysis", "create", "--resume", "--checkpoint", missing)
-	if err == nil || !strings.Contains(err.Error(), "read checkpoint") {
+	if err == nil || !strings.Contains(err.Error(), "--resume requires a usable incomplete checkpoint") {
 		t.Fatalf("error = %v, want checkpoint read error", err)
 	}
 	if strings.Contains(err.Error(), "oauth client id") || strings.Contains(err.Error(), "client secret") || strings.Contains(err.Error(), "token URL") {
 		t.Fatalf("resume required credentials before reading checkpoint: %v", err)
+	}
+}
+
+func TestAnalysisCreateHelpDocumentsAutoResumeAndNew(t *testing.T) {
+	stdout, stderr, err := executeCommand("analysis", "create", "--help")
+	if err != nil {
+		t.Fatalf("Execute returned error: %v; stderr=%s", err, stderr)
+	}
+	for _, want := range []string{"--resume", "usable incomplete checkpoint", "--new", "fresh data-analysis"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("help missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestAnalysisCreateResumeAndNewConflict(t *testing.T) {
+	dir := t.TempDir()
+	checkpoint := filepath.Join(dir, "checkpoint.json")
+	_, _, err := executeCommand("analysis", "create", "--resume", "--new", "--checkpoint", checkpoint)
+	if err == nil || !strings.Contains(err.Error(), "--resume and --new cannot be used together") {
+		t.Fatalf("error = %v, want flag conflict", err)
 	}
 }
 

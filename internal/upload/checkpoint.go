@@ -7,9 +7,61 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
+
+type RunMode int
+
+const (
+	RunModeCreate RunMode = iota
+	RunModeResume
+)
+
+type checkpointState int
+
+const (
+	checkpointMissing checkpointState = iota
+	checkpointUsableIncomplete
+	checkpointCompleted
+	checkpointExpiredSAS
+	checkpointInvalid
+	checkpointUnresumable
+)
+
+type checkpointInspection struct {
+	state checkpointState
+	cp    Checkpoint
+	err   error
+}
+
+func Plan(opts Options) (Options, RunMode, error) {
+	opts = validateOptions(opts)
+	if opts.Resume && opts.New {
+		return opts, RunModeCreate, errors.New("--resume and --new cannot be used together")
+	}
+	inspection := inspectCheckpoint(opts.CheckpointPath, opts.Now())
+	if opts.New {
+		if inspection.state == checkpointMissing {
+			return opts, RunModeCreate, nil
+		}
+		return opts, RunModeCreate, fmt.Errorf("checkpoint already exists at %s; choose a different --checkpoint or --workspace before using --new", opts.CheckpointPath)
+	}
+	if opts.Resume {
+		if inspection.state == checkpointUsableIncomplete {
+			return opts, RunModeResume, nil
+		}
+		return opts, RunModeResume, checkpointStateError("--resume requires a usable incomplete checkpoint", opts.CheckpointPath, inspection)
+	}
+	if inspection.state == checkpointMissing {
+		return opts, RunModeCreate, nil
+	}
+	if inspection.state == checkpointUsableIncomplete {
+		return opts, RunModeResume, nil
+	}
+	return opts, RunModeCreate, checkpointStateError("checkpoint is not safe for fresh creation", opts.CheckpointPath, inspection)
+}
 
 type Checkpoint struct {
 	Version    int              `json:"version"`
@@ -70,6 +122,70 @@ func prepareCheckpoint(opts Options) (Checkpoint, map[string]string, error) {
 	return cp, aesKeys, nil
 }
 
+func inspectCheckpoint(path string, now time.Time) checkpointInspection {
+	cp, err := loadCheckpoint(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return checkpointInspection{state: checkpointMissing, err: err}
+		}
+		return checkpointInspection{state: checkpointInvalid, err: err}
+	}
+	if cp.AnalysisID == "" {
+		return checkpointInspection{state: checkpointInvalid, cp: cp, err: errors.New("checkpoint is missing analysis_id")}
+	}
+	if len(cp.Files) == 0 {
+		return checkpointInspection{state: checkpointInvalid, cp: cp, err: errors.New("checkpoint contains no files")}
+	}
+	completed := 0
+	usable := 0
+	for _, file := range cp.Files {
+		if strings.TrimSpace(file.Name) == "" || strings.TrimSpace(file.SourcePath) == "" || strings.TrimSpace(file.EncryptedArtifactPath) == "" || strings.TrimSpace(file.Status) == "" {
+			return checkpointInspection{state: checkpointInvalid, cp: cp, err: errors.New("checkpoint contains incomplete file metadata")}
+		}
+		if !isKnownCheckpointStatus(file.Status) {
+			return checkpointInspection{state: checkpointInvalid, cp: cp, err: fmt.Errorf("checkpoint contains unknown file status %q for %s", file.Status, file.Name)}
+		}
+		if file.Status == StatusUploaded || file.Status == StatusSkipped {
+			completed++
+			continue
+		}
+		if expired(file.SASExpiresAt, now) || expiredURL(file.SASURL, now) {
+			return checkpointInspection{state: checkpointExpiredSAS, cp: cp, err: fmt.Errorf("SAS URL expired for %s", file.Name)}
+		}
+		if file.SASURL == "" {
+			return checkpointInspection{state: checkpointUnresumable, cp: cp, err: fmt.Errorf("missing SAS upload URL for %s", file.Name)}
+		}
+		if _, err := os.Stat(file.EncryptedArtifactPath); err != nil {
+			return checkpointInspection{state: checkpointUnresumable, cp: cp, err: fmt.Errorf("encrypted artifact for %s is unavailable: %w", file.Name, err)}
+		}
+		usable++
+	}
+	if completed == len(cp.Files) {
+		return checkpointInspection{state: checkpointCompleted, cp: cp}
+	}
+	if usable > 0 {
+		return checkpointInspection{state: checkpointUsableIncomplete, cp: cp}
+	}
+	return checkpointInspection{state: checkpointUnresumable, cp: cp, err: errors.New("checkpoint has no resumable files")}
+}
+
+func checkpointStateError(prefix, path string, inspection checkpointInspection) error {
+	switch inspection.state {
+	case checkpointMissing:
+		return fmt.Errorf("%s: no checkpoint exists at %s", prefix, path)
+	case checkpointCompleted:
+		return fmt.Errorf("%s: checkpoint at %s is already completed; use a different --checkpoint or --workspace for a new analysis", prefix, path)
+	case checkpointExpiredSAS:
+		return fmt.Errorf("%s: checkpoint at %s has expired SAS upload credentials; %w", prefix, path, inspection.err)
+	case checkpointInvalid:
+		return fmt.Errorf("%s: checkpoint at %s is invalid or corrupt; %w", prefix, path, inspection.err)
+	case checkpointUnresumable:
+		return fmt.Errorf("%s: checkpoint at %s is not resumable; %w", prefix, path, inspection.err)
+	default:
+		return fmt.Errorf("%s: checkpoint at %s is ambiguous", prefix, path)
+	}
+}
+
 func loadCheckpoint(path string) (Checkpoint, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -115,6 +231,9 @@ func resultFromCheckpoint(cp Checkpoint) Result {
 }
 
 func isResumable(file CheckpointFile) bool {
+	if !isKnownCheckpointStatus(file.Status) {
+		return false
+	}
 	if file.Status == StatusUploaded || file.Status == StatusSkipped {
 		return false
 	}
@@ -125,4 +244,13 @@ func isResumable(file CheckpointFile) bool {
 		return false
 	}
 	return file.SASURL != ""
+}
+
+func isKnownCheckpointStatus(status string) bool {
+	switch status {
+	case StatusPrepared, StatusUploaded, StatusFailed, StatusSkipped:
+		return true
+	default:
+		return false
+	}
 }

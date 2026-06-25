@@ -323,7 +323,152 @@ func TestResumeContinuesFromPersistedUploadedBlocksAndCommits(t *testing.T) {
 	}
 }
 
-func TestResumeSkipsCompletedAndFailsOnlyMissingArtifact(t *testing.T) {
+func TestAutoResumeUsesCheckpointWithoutCreatingAnalysis(t *testing.T) {
+	dir := t.TempDir()
+	artifact := writeFile(t, dir, "artifact.enc", "abcdef")
+	checkpoint := filepath.Join(dir, "checkpoint.json")
+	var stagedBlocks int32
+	var commits int32
+	sas := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("comp") {
+		case "block":
+			atomic.AddInt32(&stagedBlocks, 1)
+		case "blocklist":
+			atomic.AddInt32(&commits, 1)
+		default:
+			t.Fatalf("unexpected Azure Blob operation: %s", r.URL.RawQuery)
+		}
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer sas.Close()
+	writeCheckpoint(t, checkpoint, Checkpoint{Version: 1, AnalysisID: uuid.NewString(), Files: []CheckpointFile{{
+		Name: "file.bin", SourcePath: filepath.Join(dir, "file.bin"), EncryptedArtifactPath: artifact, SASURL: sas.URL + "/blob?se=2099-01-01T00:00:00Z", Status: StatusPrepared, UploadBlockSize: 3,
+	}}})
+	fake := &fakeCreator{}
+
+	res, err := Run(context.Background(), Options{CheckpointPath: checkpoint, WorkspaceDir: dir, API: fake, Stdout: io.Discard, Stdin: strings.NewReader("n\n")})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if fake.calls != 0 {
+		t.Fatalf("CreateAnalysis calls = %d, want 0 during inferred resume", fake.calls)
+	}
+	if res.Files[0].Status != StatusUploaded || atomic.LoadInt32(&stagedBlocks) != 2 || atomic.LoadInt32(&commits) != 1 {
+		t.Fatalf("auto-resume result/staged/commits = %+v/%d/%d", res.Files[0], stagedBlocks, commits)
+	}
+}
+
+func TestStrictResumeRequiresUsableCheckpoint(t *testing.T) {
+	dir := t.TempDir()
+	_, err := Run(context.Background(), Options{Resume: true, CheckpointPath: filepath.Join(dir, "missing.json"), WorkspaceDir: dir, Stdout: io.Discard})
+	if err == nil || !strings.Contains(err.Error(), "--resume requires a usable incomplete checkpoint") || !strings.Contains(err.Error(), "no checkpoint exists") {
+		t.Fatalf("error = %v, want strict resume missing checkpoint error", err)
+	}
+}
+
+func TestNewFailsWhenCheckpointAlreadyExists(t *testing.T) {
+	dir := t.TempDir()
+	artifact := writeFile(t, dir, "artifact.enc", "encrypted")
+	checkpoint := filepath.Join(dir, "checkpoint.json")
+	writeCheckpoint(t, checkpoint, Checkpoint{Version: 1, AnalysisID: uuid.NewString(), Files: []CheckpointFile{{
+		Name: "file.bin", SourcePath: filepath.Join(dir, "file.bin"), EncryptedArtifactPath: artifact, SASURL: "https://storage.example/file?se=2099-01-01T00:00:00Z", Status: StatusPrepared,
+	}}})
+	fake := &fakeCreator{}
+	_, err := Run(context.Background(), Options{New: true, Files: []string{writeFile(t, dir, "source.bin", "source")}, CheckpointPath: checkpoint, WorkspaceDir: dir, API: fake, Stdout: io.Discard})
+	if err == nil || !strings.Contains(err.Error(), "checkpoint already exists") {
+		t.Fatalf("error = %v, want existing checkpoint protection", err)
+	}
+	if fake.calls != 0 {
+		t.Fatalf("CreateAnalysis calls = %d, want 0", fake.calls)
+	}
+}
+
+func TestInvalidCheckpointFailsWithoutCreatingAnalysis(t *testing.T) {
+	dir := t.TempDir()
+	checkpoint := filepath.Join(dir, "checkpoint.json")
+	if err := os.WriteFile(checkpoint, []byte(`{"version":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeCreator{}
+	_, err := Run(context.Background(), Options{Files: []string{writeFile(t, dir, "source.bin", "source")}, CheckpointPath: checkpoint, WorkspaceDir: dir, API: fake, Stdout: io.Discard})
+	if err == nil || !strings.Contains(err.Error(), "invalid or corrupt") {
+		t.Fatalf("error = %v, want corrupt checkpoint error", err)
+	}
+	if fake.calls != 0 {
+		t.Fatalf("CreateAnalysis calls = %d, want 0", fake.calls)
+	}
+}
+
+func TestUnknownCheckpointStatusFailsWithoutCreatingAnalysis(t *testing.T) {
+	dir := t.TempDir()
+	artifact := writeFile(t, dir, "artifact.enc", "encrypted")
+	checkpoint := filepath.Join(dir, "checkpoint.json")
+	writeCheckpoint(t, checkpoint, Checkpoint{Version: 1, AnalysisID: uuid.NewString(), Files: []CheckpointFile{{
+		Name: "file.bin", SourcePath: filepath.Join(dir, "file.bin"), EncryptedArtifactPath: artifact, SASURL: "https://storage.example/file?se=2099-01-01T00:00:00Z", Status: "queued",
+	}}})
+	fake := &fakeCreator{}
+	_, err := Run(context.Background(), Options{Files: []string{writeFile(t, dir, "source.bin", "source")}, CheckpointPath: checkpoint, WorkspaceDir: dir, API: fake, Stdout: io.Discard})
+	if err == nil || !strings.Contains(err.Error(), "invalid or corrupt") || !strings.Contains(err.Error(), "unknown file status") {
+		t.Fatalf("error = %v, want unknown status checkpoint error", err)
+	}
+	if fake.calls != 0 {
+		t.Fatalf("CreateAnalysis calls = %d, want 0", fake.calls)
+	}
+}
+
+func TestStrictResumeRejectsUnknownCheckpointStatus(t *testing.T) {
+	dir := t.TempDir()
+	artifact := writeFile(t, dir, "artifact.enc", "encrypted")
+	checkpoint := filepath.Join(dir, "checkpoint.json")
+	writeCheckpoint(t, checkpoint, Checkpoint{Version: 1, AnalysisID: uuid.NewString(), Files: []CheckpointFile{{
+		Name: "file.bin", SourcePath: filepath.Join(dir, "file.bin"), EncryptedArtifactPath: artifact, SASURL: "https://storage.example/file?se=2099-01-01T00:00:00Z", Status: "queued",
+	}}})
+	fake := &fakeCreator{}
+	_, err := Run(context.Background(), Options{Resume: true, CheckpointPath: checkpoint, WorkspaceDir: dir, API: fake, Stdout: io.Discard})
+	if err == nil || !strings.Contains(err.Error(), "--resume requires a usable incomplete checkpoint") || !strings.Contains(err.Error(), "unknown file status") {
+		t.Fatalf("error = %v, want strict resume unknown status error", err)
+	}
+	if fake.calls != 0 {
+		t.Fatalf("CreateAnalysis calls = %d, want 0", fake.calls)
+	}
+}
+
+func TestCompletedCheckpointFailsByDefault(t *testing.T) {
+	dir := t.TempDir()
+	artifact := writeFile(t, dir, "artifact.enc", "encrypted")
+	checkpoint := filepath.Join(dir, "checkpoint.json")
+	writeCheckpoint(t, checkpoint, Checkpoint{Version: 1, AnalysisID: uuid.NewString(), Files: []CheckpointFile{{
+		Name: "file.bin", SourcePath: filepath.Join(dir, "file.bin"), EncryptedArtifactPath: artifact, SASURL: "https://storage.example/file?se=2099-01-01T00:00:00Z", Status: StatusUploaded,
+	}}})
+	fake := &fakeCreator{}
+	_, err := Run(context.Background(), Options{Files: []string{writeFile(t, dir, "source.bin", "source")}, CheckpointPath: checkpoint, WorkspaceDir: dir, API: fake, Stdout: io.Discard})
+	if err == nil || !strings.Contains(err.Error(), "already completed") {
+		t.Fatalf("error = %v, want completed checkpoint error", err)
+	}
+	if fake.calls != 0 {
+		t.Fatalf("CreateAnalysis calls = %d, want 0", fake.calls)
+	}
+}
+
+func TestExpiredCheckpointFailsByDefaultWithoutCreatingAnalysis(t *testing.T) {
+	dir := t.TempDir()
+	artifact := writeFile(t, dir, "artifact.enc", "encrypted")
+	checkpoint := filepath.Join(dir, "checkpoint.json")
+	writeCheckpoint(t, checkpoint, Checkpoint{Version: 1, AnalysisID: uuid.NewString(), Files: []CheckpointFile{{
+		Name: "file.bin", SourcePath: filepath.Join(dir, "file.bin"), EncryptedArtifactPath: artifact, SASURL: "https://storage.example/file?se=2020-01-01T00:00:00Z", SASExpiresAt: "2020-01-01T00:00:00Z", Status: StatusPrepared,
+	}}})
+	fake := &fakeCreator{}
+	_, err := Run(context.Background(), Options{Files: []string{writeFile(t, dir, "source.bin", "source")}, CheckpointPath: checkpoint, WorkspaceDir: dir, API: fake, Stdout: io.Discard, Now: func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) }})
+	if err == nil || !strings.Contains(err.Error(), "expired SAS") {
+		t.Fatalf("error = %v, want expired SAS error", err)
+	}
+	if fake.calls != 0 {
+		t.Fatalf("CreateAnalysis calls = %d, want 0", fake.calls)
+	}
+}
+
+func TestResumeFailsClearlyWhenCheckpointArtifactIsMissing(t *testing.T) {
 	dir := t.TempDir()
 	keep := writeFile(t, dir, "keep.enc", "encrypted")
 	sas := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -338,14 +483,8 @@ func TestResumeSkipsCompletedAndFailsOnlyMissingArtifact(t *testing.T) {
 	writeCheckpoint(t, checkpoint, cp)
 	var stdout bytes.Buffer
 	res, err := Run(context.Background(), Options{Resume: true, CheckpointPath: checkpoint, WorkspaceDir: dir, API: &fakeCreator{}, Stdout: &stdout, Stdin: strings.NewReader("n\n")})
-	if err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-	if res.Files[0].Status != StatusSkipped || res.Files[1].Status != StatusFailed || res.Files[1].Resumable {
-		t.Fatalf("resume results = %+v", res.Files)
-	}
-	if !strings.Contains(res.Files[1].Message, "encrypted artifact is missing") {
-		t.Fatalf("missing artifact message = %q", res.Files[1].Message)
+	if err == nil || !strings.Contains(err.Error(), "not resumable") || !strings.Contains(err.Error(), "encrypted artifact") {
+		t.Fatalf("error = %v, want missing artifact resume failure; result=%+v", err, res)
 	}
 }
 
@@ -383,14 +522,11 @@ func TestExpiredSASFailsWithoutCreatingReplacementAnalysis(t *testing.T) {
 	}}})
 	fake := &fakeCreator{}
 	res, err := Run(context.Background(), Options{Resume: true, CheckpointPath: checkpoint, WorkspaceDir: dir, API: fake, Stdout: io.Discard, Now: func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) }})
-	if err != nil {
-		t.Fatalf("Run returned error: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "expired SAS") {
+		t.Fatalf("error = %v, want expired SAS resume failure; result=%+v", err, res)
 	}
 	if fake.calls != 0 {
 		t.Fatalf("CreateAnalysis calls = %d, want 0 on expired resume", fake.calls)
-	}
-	if res.Files[0].Status != StatusFailed || !strings.Contains(res.Files[0].Message, "SAS URL expired") {
-		t.Fatalf("expired result = %+v", res.Files[0])
 	}
 }
 
