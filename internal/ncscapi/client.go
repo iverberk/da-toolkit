@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -88,7 +89,7 @@ func NewClient(cfg Config) (*Client, error) {
 		httpClient:   tokenHTTPClient,
 	}
 	httpClient := &http.Client{
-		Transport: &bearerTransport{base: baseTransport, source: tokens},
+		Transport: &apiCompatibilityTransport{base: &bearerTransport{base: baseTransport, source: tokens}},
 	}
 	if cfg.HTTPClient != nil && cfg.HTTPClient.Timeout != 0 {
 		httpClient.Timeout = cfg.HTTPClient.Timeout
@@ -276,6 +277,40 @@ func (t *bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		base = http.DefaultTransport
 	}
 	return base.RoundTrip(clone)
+}
+
+type apiCompatibilityTransport struct {
+	base http.RoundTripper
+}
+
+func (t *apiCompatibilityTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	base := t.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	resp, err := base.RoundTrip(req)
+	if err != nil || resp == nil || !strings.Contains(resp.Header.Get("Content-Type"), "json") {
+		return resp, err
+	}
+	body, readErr := io.ReadAll(resp.Body)
+	closeErr := resp.Body.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	normalized := normalizeNaiveAPITimestamps(body)
+	resp.Body = io.NopCloser(bytes.NewReader(normalized))
+	resp.ContentLength = int64(len(normalized))
+	resp.Header.Set("Content-Length", fmt.Sprint(len(normalized)))
+	return resp, nil
+}
+
+var naiveAPITimestampPattern = regexp.MustCompile(`"((?:completed|created|expired|processing)_at)"\s*:\s*"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?)"`)
+
+func normalizeNaiveAPITimestamps(body []byte) []byte {
+	return naiveAPITimestampPattern.ReplaceAll(body, []byte(`"${1}":"${2}Z"`))
 }
 
 type tokenSource struct {

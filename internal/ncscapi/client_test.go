@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"da-toolkit/internal/ncscapi/generated"
 	"github.com/google/uuid"
@@ -64,6 +65,47 @@ func TestOAuthTokenAcquisitionInjectionAndReuse(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&tokenRequests); got != 1 {
 		t.Fatalf("token requests = %d, want 1 reused in-memory token", got)
+	}
+}
+
+func TestListAnalysesAcceptsNaiveAPITimestamps(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oauth/token":
+			assertTokenRequest(t, r)
+			writeJSON(t, w, http.StatusOK, map[string]any{"access_token": testAccessToken, "token_type": "Bearer", "expires_in": 3600})
+		case "/v1/data-analyses":
+			assertBearer(t, r)
+			writeJSON(t, w, http.StatusOK, map[string]any{
+				"items": []map[string]any{{
+					"id":            testAnalysisID,
+					"type":          "other",
+					"status":        "submitted",
+					"created_at":    "2026-06-24T20:39:00.203207",
+					"processing_at": "2026-06-24T20:40:00",
+				}},
+				"total": 1,
+				"page":  1,
+				"size":  10,
+				"pages": 1,
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL, server.URL+"/oauth/token")
+	listed, err := client.ListAnalyses(context.Background(), ListOptions{})
+	if err != nil {
+		t.Fatalf("ListAnalyses returned error: %v", err)
+	}
+	if len(listed.Items) != 1 || listed.Items[0].CreatedAt == nil || listed.Items[0].ProcessingAt == nil {
+		t.Fatalf("listed = %+v, want parsed timestamps", listed)
+	}
+	wantCreated := time.Date(2026, 6, 24, 20, 39, 0, 203207000, time.UTC)
+	if !listed.Items[0].CreatedAt.Equal(wantCreated) {
+		t.Fatalf("created_at = %s, want %s", listed.Items[0].CreatedAt, wantCreated)
 	}
 }
 
