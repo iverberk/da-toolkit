@@ -17,9 +17,9 @@ var acquisitionPocFlags struct {
 	acquireArgs     []string
 }
 
-// acquisitionCmd represents the acquisition command
-var acquisitionCmd = &cobra.Command{
-	Use:   "acquisition",
+// acquireCmd represents the acquire command.
+var acquireCmd = &cobra.Command{
+	Use:   "acquire",
 	Short: "run live-system acquisition workflows",
 	Long:  "Run live-system acquisition workflows.",
 	Args:  cobra.NoArgs,
@@ -55,6 +55,6 @@ func init() {
 	acquisitionPocCmd.Flags().BoolVar(&acquisitionPocFlags.bootstrap, "bootstrap", false, "extract pinned embedded acquire dependencies into --site-packages for this PoC")
 	acquisitionPocCmd.Flags().BoolVar(&acquisitionPocFlags.cleanup, "cleanup", false, "delete extracted embedded Python runtime after the PoC run")
 	acquisitionPocCmd.Flags().StringSliceVar(&acquisitionPocFlags.acquireArgs, "acquire-arg", nil, "argument passed to acquire; repeat to build argv (defaults to --help after bootstrap)")
-	acquisitionCmd.AddCommand(acquisitionPocCmd)
-	rootCmd.AddCommand(acquisitionCmd)
+	acquireCmd.AddCommand(acquisitionPocCmd)
+	rootCmd.AddCommand(acquireCmd)
 }

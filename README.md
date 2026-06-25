@@ -170,4 +170,4 @@ Flags:
   --yes                   Delete successfully uploaded encrypted artifacts without prompting
 ```
 
-Additional implemented command groups include `result` for retrieval and `acquisition poc` for the embedded Python acquire proof of concept.
+Additional implemented command groups include `result` for retrieval and `acquire poc` for the embedded Python acquire proof of concept.
