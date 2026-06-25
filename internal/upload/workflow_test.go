@@ -174,6 +174,84 @@ func TestRunCreatesMalwareAnalysisWithZipPasswordsWithoutPersistingThem(t *testi
 	}
 }
 
+func TestRunCreatesForensicAnalysisWithRequestedAnalysesAndDiskKeysWithoutPersistingSecrets(t *testing.T) {
+	dir := t.TempDir()
+	sourceA := writeFile(t, dir, "disk-a.E01", "alpha")
+	sourceB := writeFile(t, dir, "memory.raw", "beta")
+	secretDiskKey := "forensic-disk-secret"
+	sas := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "results") {
+			t.Fatalf("unexpected result retrieval path: %s", r.URL.Path)
+		}
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer sas.Close()
+	fake := &fakeForensicCreator{sasURLs: map[string]string{
+		"disk-a.E01": sas.URL + "/a?se=2099-01-01T00:00:00Z",
+		"memory.raw": sas.URL + "/b?se=2099-01-01T00:00:00Z",
+	}, wantRequestedAnalyses: map[string][]string{
+		"disk-a.E01": {"timeline", "filesystem"},
+		"memory.raw": {"memory"},
+	}, wantDiskKeys: map[string]string{"disk-a.E01": secretDiskKey}, wantManualAllowed: true}
+	checkpoint := filepath.Join(dir, "checkpoint.json")
+	var stdout bytes.Buffer
+	res, err := Run(context.Background(), Options{
+		Files:                 []string{sourceA, sourceB},
+		WorkspaceDir:          filepath.Join(dir, "workspace"),
+		CheckpointPath:        checkpoint,
+		AssumeYes:             true,
+		AnalysisType:          AnalysisTypeForensic,
+		RequestedAnalyses:     map[string][]string{sourceA: {"timeline", "filesystem"}, sourceB: {"memory"}},
+		DiskEncryptionKeys:    map[string]string{sourceA: secretDiskKey},
+		ManualAnalysisAllowed: true,
+		API:                   fake,
+		Stdout:                &stdout,
+	})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if fake.calls != 1 {
+		t.Fatalf("CreateAnalysis calls = %d, want 1", fake.calls)
+	}
+	for _, file := range res.Files {
+		if file.Status != StatusUploaded {
+			t.Fatalf("status = %s, want uploaded", file.Status)
+		}
+	}
+	checkpointBytes, err := os.ReadFile(checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for label, value := range map[string]string{"checkpoint": string(checkpointBytes), "stdout": stdout.String()} {
+		if strings.Contains(value, secretDiskKey) || strings.Contains(value, "disk_encryption_key") {
+			t.Fatalf("%s leaked disk encryption key metadata: %s", label, value)
+		}
+	}
+}
+
+func TestRunRequiresRequestedAnalysesForEveryForensicFileBeforeCreate(t *testing.T) {
+	dir := t.TempDir()
+	sourceA := writeFile(t, dir, "a.E01", "alpha")
+	sourceB := writeFile(t, dir, "b.E01", "beta")
+	fake := &fakeForensicCreator{}
+	_, err := Run(context.Background(), Options{
+		Files:             []string{sourceA, sourceB},
+		WorkspaceDir:      filepath.Join(dir, "workspace"),
+		CheckpointPath:    filepath.Join(dir, "checkpoint.json"),
+		AnalysisType:      AnalysisTypeForensic,
+		RequestedAnalyses: map[string][]string{sourceA: {"timeline"}},
+		API:               fake,
+		Stdout:            io.Discard,
+	})
+	if err == nil || !strings.Contains(err.Error(), "missing requested analyses") {
+		t.Fatalf("error = %v, want missing requested analyses", err)
+	}
+	if fake.calls != 0 {
+		t.Fatalf("CreateAnalysis calls = %d, want 0", fake.calls)
+	}
+}
+
 func TestResumeContinuesFromPersistedUploadedBlocksAndCommits(t *testing.T) {
 	dir := t.TempDir()
 	artifact := writeFile(t, dir, "artifact.enc", "abcdefghijkl")
@@ -362,6 +440,56 @@ type fakeMalwareCreator struct {
 	calls            int
 	sasURLs          map[string]string
 	wantZipPasswords map[string]string
+}
+
+type fakeForensicCreator struct {
+	calls                 int
+	sasURLs               map[string]string
+	wantRequestedAnalyses map[string][]string
+	wantDiskKeys          map[string]string
+	wantManualAllowed     bool
+}
+
+func (f *fakeForensicCreator) CreateAnalysis(_ context.Context, request generated.StoreDataAnalysisRequest) (*generated.DataAnalysisCreatedResource, error) {
+	f.calls++
+	forensic, err := request.AsDataAnalysisForensicData()
+	if err != nil {
+		return nil, err
+	}
+	if forensic.ManualAnalysisAllowed != f.wantManualAllowed {
+		return nil, io.ErrUnexpectedEOF
+	}
+	files := make([]generated.DataAnalysisFileUploadResource, 0, len(forensic.Files))
+	for _, file := range forensic.Files {
+		if file.AesKey == "" || file.Hash == nil || *file.Hash == "" || len(file.RequestedAnalyses) == 0 {
+			return nil, io.ErrUnexpectedEOF
+		}
+		if want := f.wantRequestedAnalyses[file.Name]; !sameStrings(file.RequestedAnalyses, want) {
+			return nil, io.ErrUnexpectedEOF
+		}
+		wantDiskKey, shouldHaveDiskKey := f.wantDiskKeys[file.Name]
+		if shouldHaveDiskKey {
+			if file.DiskEncryptionKey == nil || *file.DiskEncryptionKey != wantDiskKey {
+				return nil, io.ErrUnexpectedEOF
+			}
+		} else if file.DiskEncryptionKey != nil {
+			return nil, io.ErrUnexpectedEOF
+		}
+		files = append(files, generated.DataAnalysisFileUploadResource{Name: file.Name, SasUrl: f.sasURLs[file.Name]})
+	}
+	return &generated.DataAnalysisCreatedResource{Id: uuid.MustParse("33333333-3333-3333-3333-333333333333"), Type: generated.DataAnalysisTypeForensic, ManualAnalysisAllowed: f.wantManualAllowed, Files: files}, nil
+}
+
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (f *fakeMalwareCreator) CreateAnalysis(_ context.Context, request generated.StoreDataAnalysisRequest) (*generated.DataAnalysisCreatedResource, error) {

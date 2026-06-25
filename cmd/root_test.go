@@ -36,6 +36,9 @@ func resetUploadCommandFlags() {
 		yes            bool
 		analysisType   string
 		zipPasswords   []string
+		requested      []string
+		diskKeys       []string
+		manualAllowed  bool
 	}{}
 	uploadCmd.Flags().VisitAll(func(flag *pflag.Flag) {
 		_ = flag.Value.Set(flag.DefValue)
@@ -43,6 +46,8 @@ func resetUploadCommandFlags() {
 	})
 	uploadFlags.analysisType = "other"
 	uploadFlags.zipPasswords = nil
+	uploadFlags.requested = nil
+	uploadFlags.diskKeys = nil
 }
 
 func TestHelpIncludesCommandGroupsAndSecretConvention(t *testing.T) {
