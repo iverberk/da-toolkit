@@ -1,0 +1,3 @@
+[console_scripts]
+acquire = acquire.acquire:main
+acquire-decrypt = acquire.tools.decrypter:main

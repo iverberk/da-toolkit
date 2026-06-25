@@ -12,6 +12,7 @@ import (
 )
 
 func executeCommand(args ...string) (string, string, error) {
+	resetAcquisitionCommandFlags()
 	resetUploadCommandFlags()
 	resetResultCommandFlags()
 	var stdout, stderr bytes.Buffer
@@ -22,9 +23,25 @@ func executeCommand(args ...string) (string, string, error) {
 	rootCmd.SetOut(os.Stdout)
 	rootCmd.SetErr(os.Stderr)
 	rootCmd.SetArgs(nil)
+	resetAcquisitionCommandFlags()
 	resetUploadCommandFlags()
 	resetResultCommandFlags()
 	return stdout.String(), stderr.String(), err
+}
+
+func resetAcquisitionCommandFlags() {
+	acquisitionPocFlags = struct {
+		runtimeDir      string
+		sitePackagesDir string
+		bootstrap       bool
+		cleanup         bool
+		acquireArgs     []string
+	}{}
+	acquisitionPocCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+		_ = flag.Value.Set(flag.DefValue)
+		flag.Changed = false
+	})
+	acquisitionPocFlags.acquireArgs = nil
 }
 
 func resetUploadCommandFlags() {
@@ -111,6 +128,21 @@ func TestPlaceholderCommandsDoNotRequireCredentials(t *testing.T) {
 				t.Fatalf("placeholder output did not explain safe no-op behavior: %q", stdout)
 			}
 		})
+	}
+}
+
+func TestAcquisitionPocHelpDocumentsBootstrapAndRuntimeFlags(t *testing.T) {
+	stdout, stderr, err := executeCommand("acquisition", "poc", "--help")
+	if err != nil {
+		t.Fatalf("Execute returned error: %v; stderr=%s", err, stderr)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	for _, want := range []string{"go-embed-python", "--bootstrap", "--runtime-dir", "--site-packages", "--cleanup", "does not require Internet access"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("acquisition poc help missing %q:\n%s", want, stdout)
+		}
 	}
 }
 
