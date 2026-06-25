@@ -107,10 +107,13 @@ func TestHelpIsConciseAndUsesCobraCommandList(t *testing.T) {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
 
-	for _, want := range []string{"Create, inspect, and retrieve data-analyses, and run acquisition workflows.", "Available Commands:", "analysis", "acquisition"} {
+	for _, want := range []string{"Create, inspect, and retrieve data-analyses, and run acquisition workflows.", "Available Commands:", "analysis", "acquire"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("help missing %q:\n%s", want, stdout)
 		}
+	}
+	if commandNamed(rootCmd, "acquisition") || strings.Contains(stdout, "  acquisition ") {
+		t.Fatalf("help includes old acquisition command:\n%s", stdout)
 	}
 	for _, removed := range []string{"Command groups:", "Configuration:", "User-facing errors are written as:", "Do not store API credentials"} {
 		if strings.Contains(stdout, removed) {
@@ -134,7 +137,7 @@ func commandNamed(command *cobra.Command, name string) bool {
 }
 
 func TestRemovedTopLevelCommandsAreUnavailable(t *testing.T) {
-	for _, name := range []string{"upload", "result", "gui"} {
+	for _, name := range []string{"upload", "result", "gui", "acquisition"} {
 		t.Run(name, func(t *testing.T) {
 			_, _, err := executeCommand(name)
 			if err == nil || !strings.Contains(err.Error(), "unknown command") {
@@ -144,8 +147,8 @@ func TestRemovedTopLevelCommandsAreUnavailable(t *testing.T) {
 	}
 }
 
-func TestAcquisitionPocHelpDocumentsBootstrapAndRuntimeFlags(t *testing.T) {
-	stdout, stderr, err := executeCommand("acquisition", "poc", "--help")
+func TestAcquirePocHelpDocumentsBootstrapAndRuntimeFlags(t *testing.T) {
+	stdout, stderr, err := executeCommand("acquire", "poc", "--help")
 	if err != nil {
 		t.Fatalf("Execute returned error: %v; stderr=%s", err, stderr)
 	}
@@ -154,7 +157,7 @@ func TestAcquisitionPocHelpDocumentsBootstrapAndRuntimeFlags(t *testing.T) {
 	}
 	for _, want := range []string{"go-embed-python", "--bootstrap", "--runtime-dir", "--site-packages", "--cleanup", "does not require Internet access"} {
 		if !strings.Contains(stdout, want) {
-			t.Fatalf("acquisition poc help missing %q:\n%s", want, stdout)
+			t.Fatalf("acquire poc help missing %q:\n%s", want, stdout)
 		}
 	}
 }
