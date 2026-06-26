@@ -1,4 +1,4 @@
-# CLI result retrieval commands
+# CLI analysis retrieval subcommands
 
 ## Type
 
@@ -12,7 +12,7 @@ Upload stories stop at successful upload. Retrieving data-analysis status and re
 
 - Provide CLI commands to list data-analyses.
 - Provide a CLI command to read one data-analysis by ID.
-- Provide CLI commands to download a result archive and a specific result file.
+- Provide CLI subcommands to download a result archive and a specific result file.
 - Let users choose output paths for downloaded results.
 
 ## Technical Requirements
@@ -36,14 +36,14 @@ Upload stories stop at successful upload. Retrieving data-analysis status and re
 
 ### Likely Impact
 
-- Primary implementation lane: Cobra `result` command surface -> `internal/ncscapi.Client` list/read/result methods -> local output-file write/overwrite safeguards.
-- `cmd/result.go` - currently a placeholder command; likely first layer to replace with subcommands/flags for list, read, archive download, and named-file download.
-- `cmd/upload.go` - closest existing credential flag wiring and in-memory OAuth client construction pattern (`--base-url`, `--token-url`, `--client-id`, `--client-secret`, env fallbacks) to reuse for result commands.
+- Primary implementation lane: Cobra `analysis` retrieval subcommands -> `internal/ncscapi.Client` list/read/result methods -> local output-file write/overwrite safeguards.
+- `cmd/analysis.go` - command surface for list, read, archive download, and named-file download.
+- `cmd/upload.go` - closest existing credential flag wiring and in-memory OAuth client construction pattern (`--base-url`, `--token-url`, `--client-id`, `--client-secret`, env fallbacks) to reuse for analysis commands.
 - `internal/ncscapi/client.go` - already exposes `ListAnalyses`, `ReadAnalysis`, `GetResultArchive`, and `GetResultFile`, so command implementation should call these wrappers rather than adding generated-client calls.
 
 ### Possible Adjacent Touchpoints
 
-- `cmd/root_test.go` or new result command tests - existing command execution helper/reset pattern covers Cobra assertions; result flags may need their own reset helper if package-level flags are used.
+- `cmd/root_test.go` or new analysis command tests - existing command execution helper/reset pattern covers Cobra assertions; analysis flags may need their own reset helper if package-level flags are used.
 - `internal/ncscapi/error.go` - existing API error normalization already covers status and auth guidance; update only if result-specific missing/not-found wording needs clearer user-facing messages.
 - `internal/ncscapi/generated/client.gen.go` - read-only generated prior art confirms result metadata fields and endpoints, but should not be manually edited.
 
@@ -56,7 +56,7 @@ Upload stories stop at successful upload. Retrieving data-analysis status and re
 
 ### Layer Boundaries
 
-- Touch first: `cmd/result.go` and command tests; use `internal/ncscapi.Client` as the API boundary.
+- Touch first: `cmd/analysis.go` and command tests; use `internal/ncscapi.Client` as the API boundary.
 - Touch only if evidence emerges: `internal/ncscapi/client.go` wrapper behavior, limited to small helper additions or clearer result/not-found handling.
 - Avoid unless regenerated from OpenAPI: `internal/ncscapi/generated/client.gen.go`.
 - Avoid widening into upload checkpoint/resume logic: result retrieval is separate from upload workflows, and existing upload tests explicitly reject result retrieval during upload.
@@ -71,11 +71,11 @@ Upload stories stop at successful upload. Retrieving data-analysis status and re
 
 **Integration Tests**:
 
-- Use fake HTTP token/API servers to exercise `result` subcommands through Cobra, including OAuth header use without leaking client secret or bearer token in errors/output.
+- Use fake HTTP token/API servers to exercise `analysis` subcommands through Cobra, including OAuth header use without leaking client secret or bearer token in errors/output.
 
 **E2E / Manual Validation**:
 
-- Manually run result list/read/archive/file commands against a test API environment if credentials are available, including incomplete/no-results and not-found analyses.
+- Manually run analysis list/read/archive/file commands against a test API environment if credentials are available, including incomplete/no-results and not-found analyses.
 
 **Additional Checks (as applicable)**:
 
@@ -84,12 +84,12 @@ Upload stories stop at successful upload. Retrieving data-analysis status and re
 ## Implementation feedback (2026-06-25 09:30)
 
 * Gate result: FAIL.
-* Add story-required verification for not-found analysis responses through the result command surface; current tests do not exercise a 404/not-found read or download path even though acceptance requires clear not-found reporting.
+* Add story-required verification for not-found analysis responses through the analysis command surface; current tests do not exercise a 404/not-found read or download path even though acceptance requires clear not-found reporting.
 * Add story-required verification for archive download when analysis metadata reports no available results; current tests cover missing named file metadata but not the archive/no-results path from the verification plan.
 
 ## Implementation update (2026-06-25 09:30)
 
-- Addressed: Added result command tests for 404/not-found read and archive download errors, plus archive download when metadata reports no available results.
+- Addressed: Added analysis command tests for 404/not-found read and archive download errors, plus archive download when metadata reports no available results.
 - Not addressed: None.
 - Status: done
 

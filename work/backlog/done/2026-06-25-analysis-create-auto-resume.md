@@ -63,7 +63,7 @@ The upload/create workflow persists checkpoint state so interrupted uploads can 
 
 ### Possible Adjacent Touchpoints
 
-- `cmd/result.go` - repo evidence shows `resultCmd.AddCommand(analysisCreateCmd, ...)`, so `analysisCreateCmd` is already the `analysis create` subcommand; only touch hierarchy wiring if the command hierarchy story has changed this shape.
+- `cmd/analysis.go` - repo evidence shows `analysisCmd.AddCommand(analysisCreateCmd, ...)`, so `analysisCreateCmd` is already the `analysis create` subcommand; only touch hierarchy wiring if the command hierarchy story has changed this shape.
 - `internal/upload/workflow_test.go` - has existing fake `CreateAnalysis` call counters and resume/SAS-expiry tests that directly match the new no-accidental-create requirements.
 - `cmd/root_test.go` - may need CLI help/flag assertions for `--new`, strict `--resume`, and updated help text.
 
@@ -76,7 +76,7 @@ The upload/create workflow persists checkpoint state so interrupted uploads can 
 ### Layer Boundaries
 
 - Touch first: Cobra command flags/help and pre-client run-mode decision in `cmd/upload.go`; upload orchestration and checkpoint-state classification in `internal/upload`.
-- Avoid unless evidence emerges: generated NCSC API bindings under `internal/ncscapi/generated`, OAuth client internals in `internal/ncscapi`, encryption implementation, result retrieval commands, acquisition, GUI/packaging layers, and ADR/guideline semantics.
+- Avoid unless evidence emerges: generated NCSC API bindings under `internal/ncscapi/generated`, OAuth client internals in `internal/ncscapi`, encryption implementation, analysis retrieval subcommands, acquisition, GUI/packaging layers, and ADR/guideline semantics.
 - Inference: preserve the existing API wrapper boundary; this story should not require new NCSC endpoint shapes or generated code.
 
 ### Verification Plan

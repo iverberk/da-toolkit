@@ -59,7 +59,7 @@ The toolkit must run Dissect/acquire exactly, but `work/adr/2026-06-22-embedded-
 ### Layer Boundaries
 
 - Touch first: acquisition CLI surface in `cmd/acquisition.go`, a narrow internal acquisition/embedded-runtime PoC package, dependency/version metadata, and `work/` evidence/docs needed for ADR follow-up.
-- Avoid unless evidence emerges: NCSC API client/generated bindings, upload/encryption/checkpoint workflow, result retrieval commands, GUI paths, and persistent config/secrets handling.
+- Avoid unless evidence emerges: NCSC API client/generated bindings, upload/encryption/checkpoint workflow, analysis retrieval subcommands, GUI paths, and persistent config/secrets handling.
 - Avoid changing the acquisition execution model beyond the story: invoke acquire as a subprocess through embedded Python; do not introduce CPython bindings or host-Python requirements.
 
 ### Verification Plan

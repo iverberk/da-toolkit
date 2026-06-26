@@ -16,7 +16,7 @@ import (
 
 func executeCommand(args ...string) (string, string, error) {
 	resetUploadCommandFlags()
-	resetResultCommandFlags()
+	resetAnalysisCommandFlags()
 	var stdout, stderr bytes.Buffer
 	rootCmd.SetOut(&stdout)
 	rootCmd.SetErr(&stderr)
@@ -27,7 +27,7 @@ func executeCommand(args ...string) (string, string, error) {
 	rootCmd.SetArgs(nil)
 	resetAcquireCommandFlags()
 	resetUploadCommandFlags()
-	resetResultCommandFlags()
+	resetAnalysisCommandFlags()
 	return stdout.String(), stderr.String(), err
 }
 
@@ -61,8 +61,8 @@ func resetUploadCommandFlags() {
 	uploadFlags.diskKeys = nil
 }
 
-func resetResultCommandFlags() {
-	resultFlags = struct {
+func resetAnalysisCommandFlags() {
+	analysisFlags = struct {
 		baseURL       string
 		tokenURL      string
 		clientID      string
@@ -77,7 +77,7 @@ func resetResultCommandFlags() {
 		output        string
 		overwrite     bool
 	}{}
-	for _, command := range []*cobra.Command{resultCmd, resultListCmd, resultReadCmd, resultArchiveCmd, resultFileCmd} {
+	for _, command := range []*cobra.Command{analysisCmd, analysisListCmd, analysisReadCmd, analysisArchiveCmd, analysisFileCmd} {
 		command.Flags().VisitAll(func(flag *pflag.Flag) {
 			_ = flag.Value.Set(flag.DefValue)
 			flag.Changed = false

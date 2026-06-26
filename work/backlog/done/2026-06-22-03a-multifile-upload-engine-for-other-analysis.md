@@ -67,7 +67,7 @@ The first upload workflow should use pre-existing local files and not depend on 
 ### Layer Boundaries
 
 - Touch first: Cobra `analysis create` command wiring in `cmd/`, new internal workflow code for encryption/hash/upload/checkpoint/resume/summary/cleanup, and existing `internal/ncscapi` wrapper only where API-facing helpers are necessary.
-- Avoid unless evidence emerges: `internal/ncscapi/generated/` and OpenAPI spec files, result retrieval paths (`GetResultFile`, `GetResultArchive`, `cmd/result.go`), acquisition/Dissect packaging paths, GUI behavior, and replacement data-analysis creation after SAS expiry.
+- Avoid unless evidence emerges: `internal/ncscapi/generated/` and OpenAPI spec files, result retrieval paths (`GetResultFile`, `GetResultArchive`, `cmd/analysis.go`), acquisition/Dissect packaging paths, GUI behavior, and replacement data-analysis creation after SAS expiry.
 
 ### Verification Plan
 
