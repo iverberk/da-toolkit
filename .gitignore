@@ -4,3 +4,9 @@ datk
 internal/acquire/embedded/site-packages/linux-arm64/*
 !internal/acquire/embedded/site-packages/linux-arm64/.gitkeep
 !internal/acquire/embedded/site-packages/linux-arm64/placeholder.txt
+internal/acquire/embedded/site-packages/linux-amd64/*
+!internal/acquire/embedded/site-packages/linux-amd64/.gitkeep
+!internal/acquire/embedded/site-packages/linux-amd64/placeholder.txt
+internal/acquire/embedded/site-packages/windows-amd64/*
+!internal/acquire/embedded/site-packages/windows-amd64/.gitkeep
+!internal/acquire/embedded/site-packages/windows-amd64/placeholder.txt

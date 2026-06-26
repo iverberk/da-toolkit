@@ -17,14 +17,14 @@ import (
 )
 
 const (
-	PythonVersion        = "3.12.8"
-	GoEmbedPythonVersion = "v0.0.0-3.12.8-20241219-1"
-	AcquireVersion       = "3.22"
-	AcquirePackageSpec   = "acquire==" + AcquireVersion
-	embeddedSitePackages = "embedded/site-packages/linux-arm64"
+	PythonVersion            = "3.12.8"
+	GoEmbedPythonVersion     = "v0.0.0-3.12.8-20241219-1"
+	AcquireVersion           = "3.22"
+	AcquirePackageSpec       = "acquire==" + AcquireVersion
+	embeddedSitePackagesRoot = "embedded/site-packages"
 )
 
-//go:embed all:embedded/site-packages/linux-arm64
+//go:embed all:embedded/site-packages
 var embeddedAcquireSitePackages embed.FS
 
 type Options struct {
@@ -54,8 +54,8 @@ func SitePackagesDir(home string) string {
 }
 
 func Run(ctx context.Context, opts Options) error {
-	if runtime.GOOS != "linux" || runtime.GOARCH != "arm64" {
-		return fmt.Errorf("embedded acquire is currently scoped to linux-arm64 only; current platform is %s-%s", runtime.GOOS, runtime.GOARCH)
+	if !supportedPlatform() {
+		return fmt.Errorf("embedded acquire is currently scoped to linux-arm64, linux-amd64, and windows-amd64 only; current platform is %s", runtimePlatform())
 	}
 	stdout := opts.Stdout
 	if stdout == nil {
@@ -146,7 +146,7 @@ func bootstrapAcquire(sitePackagesDir string) error {
 }
 
 func extractEmbeddedSitePackages(sitePackagesDir string) error {
-	root, err := fs.Sub(embeddedAcquireSitePackages, embeddedSitePackages)
+	root, err := fs.Sub(embeddedAcquireSitePackages, embeddedSitePackagesPath())
 	if err != nil {
 		return fmt.Errorf("open embedded site-packages: %w", err)
 	}
@@ -175,6 +175,23 @@ func extractEmbeddedSitePackages(sitePackagesDir string) error {
 		}
 		return os.WriteFile(target, data, mode)
 	})
+}
+
+func supportedPlatform() bool {
+	switch runtimePlatform() {
+	case "linux-arm64", "linux-amd64", "windows-amd64":
+		return true
+	default:
+		return false
+	}
+}
+
+func runtimePlatform() string {
+	return runtime.GOOS + "-" + runtime.GOARCH
+}
+
+func embeddedSitePackagesPath() string {
+	return embeddedSitePackagesRoot + "/" + runtimePlatform()
 }
 
 func acquirePythonInvocation(args []string) []string {

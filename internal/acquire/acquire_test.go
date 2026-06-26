@@ -112,9 +112,16 @@ func TestDebugfWritesOnlyWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestEmbeddedSitePackagesPathUsesRuntimePlatform(t *testing.T) {
+	want := embeddedSitePackagesRoot + "/" + runtimePlatform()
+	if got := embeddedSitePackagesPath(); got != want {
+		t.Fatalf("embeddedSitePackagesPath() = %q, want %q", got, want)
+	}
+}
+
 func requireEmbeddedAcquireSitePackages(t *testing.T) {
 	t.Helper()
-	if _, err := fs.Stat(embeddedAcquireSitePackages, embeddedSitePackages+"/acquire/acquire.py"); err != nil {
+	if _, err := fs.Stat(embeddedAcquireSitePackages, embeddedSitePackagesPath()+"/acquire/acquire.py"); err != nil {
 		t.Skip("full embedded acquire site-packages are generated only during binary builds")
 	}
 }
