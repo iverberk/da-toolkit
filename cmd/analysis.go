@@ -282,7 +282,7 @@ func init() {
 		command.Flags().BoolVar(&analysisFlags.overwrite, "overwrite", false, "overwrite an existing output file")
 	}
 
-	analysisCmd.AddCommand(analysisCreateCmd, analysisListCmd, analysisReadCmd, analysisDeleteCmd, analysisArchiveCmd, analysisFileCmd)
+	analysisCmd.AddCommand(analysisCreateCmd, analysisUploadCmd, analysisListCmd, analysisReadCmd, analysisDeleteCmd, analysisArchiveCmd, analysisFileCmd)
 	rootCmd.AddCommand(analysisCmd)
 }
 

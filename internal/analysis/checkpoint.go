@@ -122,6 +122,65 @@ func prepareCheckpoint(opts Options) (Checkpoint, map[string]string, error) {
 	return cp, aesKeys, nil
 }
 
+func prepareDeferredCheckpoint(opts Options) (Checkpoint, map[string]string, error) {
+	cp := Checkpoint{Version: 1}
+	aesKeys := make(map[string]string, len(opts.Files))
+	nameCounts := make(map[string]int, len(opts.Files))
+	for _, source := range opts.Files {
+		if strings.TrimSpace(source) == "" {
+			return Checkpoint{}, nil, errors.New("filenames must not be empty")
+		}
+		name := uniqueUploadName(source, nameCounts)
+		key, err := GenerateAESKey()
+		if err != nil {
+			return Checkpoint{}, nil, fmt.Errorf("generate AES key for %s: %w", name, err)
+		}
+		cp.Files = append(cp.Files, CheckpointFile{Name: name, SourcePath: source, Status: StatusPrepared})
+		aesKeys[name] = key
+	}
+	return cp, aesKeys, nil
+}
+
+func prepareUploadCheckpoint(opts UploadOptions) (Checkpoint, error) {
+	if len(opts.Files) == 0 {
+		return Checkpoint{}, errors.New("at least one upload file is required")
+	}
+	if err := os.MkdirAll(opts.WorkspaceDir, 0o700); err != nil {
+		return Checkpoint{}, fmt.Errorf("create workspace: %w", err)
+	}
+	cp := Checkpoint{Version: 1}
+	if opts.AnalysisID != uuid.Nil {
+		cp.AnalysisID = opts.AnalysisID.String()
+	} else {
+		cp.AnalysisID = uuid.Nil.String()
+	}
+	nameCounts := make(map[string]int, len(opts.Files))
+	for _, file := range opts.Files {
+		if strings.TrimSpace(file.Filename) == "" || strings.TrimSpace(file.AESKey) == "" || strings.TrimSpace(file.SASURL) == "" {
+			return Checkpoint{}, errors.New("upload files require filename, aes_key, and sas_url")
+		}
+		abs, err := filepath.Abs(file.Filename)
+		if err != nil {
+			return Checkpoint{}, fmt.Errorf("resolve source path %q: %w", file.Filename, err)
+		}
+		info, err := os.Stat(abs)
+		if err != nil {
+			return Checkpoint{}, fmt.Errorf("stat source file %q: %w", file.Filename, err)
+		}
+		if info.IsDir() {
+			return Checkpoint{}, fmt.Errorf("source path %q is a directory", file.Filename)
+		}
+		artifact := filepath.Join(opts.WorkspaceDir, uniqueArtifactName(abs, len(cp.Files)))
+		hash, err := EncryptFileWithKey(abs, artifact, file.AESKey)
+		if err != nil {
+			return Checkpoint{}, fmt.Errorf("encrypt %q: %w", file.Filename, err)
+		}
+		name := uniqueUploadName(abs, nameCounts)
+		cp.Files = append(cp.Files, CheckpointFile{Name: name, SourcePath: abs, EncryptedArtifactPath: artifact, Hash: hash, SASURL: file.SASURL, SASExpiresAt: sasExpiry(file.SASURL), Status: StatusPrepared})
+	}
+	return cp, nil
+}
+
 func inspectCheckpoint(path string, now time.Time) checkpointInspection {
 	cp, err := loadCheckpoint(path)
 	if err != nil {

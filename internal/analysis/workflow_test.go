@@ -123,6 +123,93 @@ func TestRunCreatesAnalysisUploadsAndCleansOnlySuccessfulArtifacts(t *testing.T)
 	}
 }
 
+func TestCreateDeferredAcceptsMissingFilesAndOmitsHashes(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "does-not-exist.bin")
+	fake := &fakeDeferredCreator{sasURLs: map[string]string{"does-not-exist.bin": "https://storage.example/blob?se=2099-01-01T00:00:00Z"}}
+	handoff, err := CreateDeferred(context.Background(), Options{
+		Files:        []string{missing},
+		AnalysisType: AnalysisTypeOther,
+		API:          fake,
+		Stdout:       io.Discard,
+	})
+	if err != nil {
+		t.Fatalf("CreateDeferred returned error: %v", err)
+	}
+	if fake.calls != 1 || handoff.AnalysisID == uuid.Nil || len(handoff.Files) != 1 {
+		t.Fatalf("handoff/calls = %+v/%d, want one created handoff", handoff, fake.calls)
+	}
+	if handoff.Files[0].AESKey == "" || handoff.Files[0].SASURL == "" || handoff.Files[0].Filename != "does-not-exist.bin" {
+		t.Fatalf("handoff file = %+v, want filename/key/sas", handoff.Files[0])
+	}
+}
+
+func TestUploadHandoffEncryptsWithSuppliedKeyAndDoesNotPersistAESKey(t *testing.T) {
+	dir := t.TempDir()
+	source := writeFile(t, dir, "plain.bin", "plain evidence")
+	key, err := GenerateAESKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var uploaded []byte
+	sas := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("comp") {
+		case "block":
+			body, _ := io.ReadAll(r.Body)
+			uploaded = append(uploaded, body...)
+		case "blocklist":
+		default:
+			t.Fatalf("unexpected Azure Blob operation: %s", r.URL.RawQuery)
+		}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer sas.Close()
+	checkpoint := filepath.Join(dir, "upload-checkpoint.json")
+	var stdout bytes.Buffer
+	res, err := Upload(context.Background(), UploadOptions{
+		AnalysisID:     uuid.MustParse("44444444-4444-4444-4444-444444444444"),
+		Files:          []HandoffFile{{Filename: source, AESKey: key, SASURL: sas.URL + "/blob?se=2099-01-01T00:00:00Z"}},
+		WorkspaceDir:   filepath.Join(dir, "workspace"),
+		CheckpointPath: checkpoint,
+		AssumeYes:      true,
+		Stdout:         &stdout,
+	})
+	if err != nil {
+		t.Fatalf("Upload returned error: %v", err)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decrypted, _ := decryptArtifactBytes(t, uploaded, decoded)
+	if string(decrypted) != "plain evidence" || res.Files[0].Status != StatusUploaded {
+		t.Fatalf("decrypted/status = %q/%s, want plaintext/uploaded", decrypted, res.Files[0].Status)
+	}
+	checkpointBytes, err := os.ReadFile(checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(checkpointBytes), key) || strings.Contains(string(checkpointBytes), "aes_key") {
+		t.Fatalf("checkpoint persisted AES key: %s", checkpointBytes)
+	}
+}
+
+func TestSelectHandoffFilesExactBeforeBasenameAndAmbiguity(t *testing.T) {
+	handoff := Handoff{AnalysisID: uuid.New(), Files: []HandoffFile{
+		{Filename: "a/sample.bin", AESKey: "key-a", SASURL: "sas-a"},
+		{Filename: "b/sample.bin", AESKey: "key-b", SASURL: "sas-b"},
+		{Filename: "sample.bin", AESKey: "key-exact", SASURL: "sas-exact"},
+	}}
+	selected, err := SelectHandoffFiles(handoff, "sample.bin")
+	if err != nil || len(selected) != 1 || selected[0].AESKey != "key-exact" {
+		t.Fatalf("exact selection = %+v err=%v, want exact", selected, err)
+	}
+	_, err = SelectHandoffFiles(Handoff{AnalysisID: uuid.New(), Files: handoff.Files[:2]}, filepath.Join(t.TempDir(), "sample.bin"))
+	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("error = %v, want ambiguous basename", err)
+	}
+}
+
 func TestRunCreatesMalwareAnalysisWithZipPasswordsWithoutPersistingThem(t *testing.T) {
 	dir := t.TempDir()
 	sourceA := writeFile(t, dir, "a.zip", "alpha")
@@ -536,6 +623,11 @@ func decryptArtifact(t *testing.T, path string, key []byte) ([]byte, int) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return decryptArtifactBytes(t, data, key)
+}
+
+func decryptArtifactBytes(t *testing.T, data []byte, key []byte) ([]byte, int) {
+	t.Helper()
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		t.Fatal(err)
@@ -568,6 +660,11 @@ func decryptArtifact(t *testing.T, path string, key []byte) ([]byte, int) {
 }
 
 type fakeCreator struct {
+	calls   int
+	sasURLs map[string]string
+}
+
+type fakeDeferredCreator struct {
 	calls   int
 	sasURLs map[string]string
 }
@@ -669,6 +766,22 @@ func (f *fakeCreator) CreateAnalysis(_ context.Context, request generated.StoreD
 		files = append(files, generated.DataAnalysisFileUploadResource{Name: file.Name, SasUrl: f.sasURLs[file.Name]})
 	}
 	return &generated.DataAnalysisCreatedResource{Id: uuid.MustParse("11111111-1111-1111-1111-111111111111"), Type: generated.DataAnalysisTypeOther, ManualAnalysisAllowed: true, Files: files}, nil
+}
+
+func (f *fakeDeferredCreator) CreateAnalysis(_ context.Context, request generated.StoreDataAnalysisRequest) (*generated.DataAnalysisCreatedResource, error) {
+	f.calls++
+	other, err := request.AsDataAnalysisOtherData()
+	if err != nil {
+		return nil, err
+	}
+	files := make([]generated.DataAnalysisFileUploadResource, 0, len(other.Files))
+	for _, file := range other.Files {
+		if file.AesKey == "" || file.Hash != nil {
+			return nil, io.ErrUnexpectedEOF
+		}
+		files = append(files, generated.DataAnalysisFileUploadResource{Name: file.Name, SasUrl: f.sasURLs[file.Name]})
+	}
+	return &generated.DataAnalysisCreatedResource{Id: uuid.MustParse("44444444-4444-4444-4444-444444444444"), Type: generated.DataAnalysisTypeOther, ManualAnalysisAllowed: true, Files: files}, nil
 }
 
 func writeFile(t *testing.T, dir, name, contents string) string {

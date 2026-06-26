@@ -3,6 +3,7 @@ package analysis
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -67,6 +68,29 @@ type Result struct {
 	Files      []FileSummary
 }
 
+type Handoff struct {
+	AnalysisID uuid.UUID     `json:"analysis_id"`
+	Files      []HandoffFile `json:"files"`
+}
+
+type HandoffFile struct {
+	Filename string `json:"filename"`
+	AESKey   string `json:"aes_key"`
+	SASURL   string `json:"sas_url"`
+}
+
+type UploadOptions struct {
+	AnalysisID      uuid.UUID
+	Files           []HandoffFile
+	WorkspaceDir    string
+	CheckpointPath  string
+	AssumeYes       bool
+	UploadBlockSize int64
+	Now             func() time.Time
+	Stdin           io.Reader
+	Stdout          io.Writer
+}
+
 func Run(ctx context.Context, opts Options) (Result, error) {
 	opts, mode, err := Plan(opts)
 	if err != nil {
@@ -91,7 +115,7 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 		if opts.API == nil {
 			return Result{}, fmt.Errorf("api client is required to create a %s analysis", opts.AnalysisType)
 		}
-		created, err := createAnalysis(ctx, opts.API, cp, aesKeys, opts)
+		created, err := createAnalysis(ctx, opts.API, cp, aesKeys, opts, true)
 		if err != nil {
 			return Result{}, err
 		}
@@ -128,6 +152,123 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	return resultFromCheckpoint(cp), nil
 }
 
+func CreateDeferred(ctx context.Context, opts Options) (Handoff, error) {
+	opts = validateOptions(opts)
+	if len(opts.Files) == 0 {
+		return Handoff{}, errors.New("at least one filename is required for deferred upload")
+	}
+	if opts.Resume || opts.New {
+		return Handoff{}, errors.New("--deferred cannot be used with --resume or --new")
+	}
+	cp, aesKeys, err := prepareDeferredCheckpoint(opts)
+	if err != nil {
+		return Handoff{}, err
+	}
+	if err := validateCreateInputs(cp, opts); err != nil {
+		return Handoff{}, err
+	}
+	if opts.API == nil {
+		return Handoff{}, fmt.Errorf("api client is required to create a %s analysis", opts.AnalysisType)
+	}
+	created, err := createAnalysis(ctx, opts.API, cp, aesKeys, opts, false)
+	if err != nil {
+		return Handoff{}, err
+	}
+	handoff := Handoff{AnalysisID: created.Id}
+	for _, returned := range created.Files {
+		key := aesKeys[returned.Name]
+		if key == "" {
+			return Handoff{}, fmt.Errorf("missing generated AES key for %s", returned.Name)
+		}
+		handoff.Files = append(handoff.Files, HandoffFile{Filename: returned.Name, AESKey: key, SASURL: returned.SasUrl})
+	}
+	return handoff, nil
+}
+
+func ParseHandoff(data []byte) (Handoff, error) {
+	var h Handoff
+	if err := json.Unmarshal(data, &h); err != nil {
+		return Handoff{}, err
+	}
+	if h.AnalysisID == uuid.Nil {
+		return Handoff{}, errors.New("handoff is missing analysis_id")
+	}
+	if len(h.Files) == 0 {
+		return Handoff{}, errors.New("handoff contains no files")
+	}
+	for _, file := range h.Files {
+		if strings.TrimSpace(file.Filename) == "" || strings.TrimSpace(file.AESKey) == "" || strings.TrimSpace(file.SASURL) == "" {
+			return Handoff{}, errors.New("handoff files require filename, aes_key, and sas_url")
+		}
+	}
+	return h, nil
+}
+
+func SelectHandoffFiles(h Handoff, filename string) ([]HandoffFile, error) {
+	if strings.TrimSpace(filename) == "" {
+		return append([]HandoffFile(nil), h.Files...), nil
+	}
+	for _, file := range h.Files {
+		if file.Filename == filename {
+			selected := file
+			selected.Filename = filename
+			return []HandoffFile{selected}, nil
+		}
+	}
+	base := filepath.Base(filename)
+	var matches []HandoffFile
+	for _, file := range h.Files {
+		if filepath.Base(file.Filename) == base {
+			selected := file
+			selected.Filename = filename
+			matches = append(matches, selected)
+		}
+	}
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("filename %q does not match any handoff file", filename)
+	}
+	if len(matches) > 1 {
+		return nil, fmt.Errorf("filename basename %q is ambiguous in handoff; use an exact handoff filename", base)
+	}
+	return matches, nil
+}
+
+func Upload(ctx context.Context, opts UploadOptions) (Result, error) {
+	opts = validateUploadOptions(opts)
+	inspection := inspectCheckpoint(opts.CheckpointPath, opts.Now())
+	var cp Checkpoint
+	if inspection.state == checkpointUsableIncomplete {
+		cp = inspection.cp
+	} else if inspection.state == checkpointMissing {
+		prepared, err := prepareUploadCheckpoint(opts)
+		if err != nil {
+			return Result{}, err
+		}
+		cp = prepared
+		if err := saveCheckpoint(opts.CheckpointPath, cp); err != nil {
+			return Result{}, err
+		}
+	} else {
+		return Result{}, checkpointStateError("checkpoint is not safe for upload", opts.CheckpointPath, inspection)
+	}
+	for i := range cp.Files {
+		if cp.Files[i].Status == StatusUploaded {
+			cp.Files[i].Status = StatusSkipped
+			cp.Files[i].Message = "already uploaded; skipped during resume"
+			reportStatus(opts.Stdout, &cp.Files[i])
+			continue
+		}
+		uploadOne(ctx, Options{UploadBlockSize: opts.UploadBlockSize, Now: opts.Now, Stdout: opts.Stdout}, &cp.Files[i], func() { _ = saveCheckpoint(opts.CheckpointPath, cp) })
+		_ = saveCheckpoint(opts.CheckpointPath, cp)
+	}
+	if err := saveCheckpoint(opts.CheckpointPath, cp); err != nil {
+		return Result{}, err
+	}
+	printSummary(opts.Stdout, cp)
+	cleanupUploaded(Options{AssumeYes: opts.AssumeYes, Stdin: opts.Stdin, Stdout: opts.Stdout}, cp)
+	return resultFromCheckpoint(cp), nil
+}
+
 func validateOptions(opts Options) Options {
 	if opts.Stdout == nil {
 		opts.Stdout = io.Discard
@@ -153,14 +294,39 @@ func validateOptions(opts Options) Options {
 	return opts
 }
 
-func createAnalysis(ctx context.Context, api AnalysisCreator, cp Checkpoint, aesKeys map[string]string, opts Options) (*generated.DataAnalysisCreatedResource, error) {
+func validateUploadOptions(opts UploadOptions) UploadOptions {
+	if opts.Stdout == nil {
+		opts.Stdout = io.Discard
+	}
+	if opts.Stdin == nil {
+		opts.Stdin = os.Stdin
+	}
+	if opts.Now == nil {
+		opts.Now = time.Now
+	}
+	if opts.UploadBlockSize <= 0 {
+		opts.UploadBlockSize = DefaultUploadBlockSize
+	}
+	if opts.WorkspaceDir == "" && opts.CheckpointPath == "" {
+		opts.WorkspaceDir = filepath.Join(".da-toolkit", "analysis-upload")
+	}
+	if opts.CheckpointPath == "" {
+		opts.CheckpointPath = filepath.Join(opts.WorkspaceDir, "analysis-upload-checkpoint.json")
+	}
+	if opts.WorkspaceDir == "" {
+		opts.WorkspaceDir = filepath.Dir(opts.CheckpointPath)
+	}
+	return opts
+}
+
+func createAnalysis(ctx context.Context, api AnalysisCreator, cp Checkpoint, aesKeys map[string]string, opts Options, includeHash bool) (*generated.DataAnalysisCreatedResource, error) {
 	switch opts.AnalysisType {
 	case AnalysisTypeOther:
-		return createOtherAnalysis(ctx, api, cp, aesKeys)
+		return createOtherAnalysis(ctx, api, cp, aesKeys, includeHash)
 	case AnalysisTypeMalware:
-		return createMalwareAnalysis(ctx, api, cp, aesKeys, opts.ZipPasswords)
+		return createMalwareAnalysis(ctx, api, cp, aesKeys, opts.ZipPasswords, includeHash)
 	case AnalysisTypeForensic:
-		return createForensicAnalysis(ctx, api, cp, aesKeys, opts.RequestedAnalyses, opts.DiskEncryptionKeys, opts.ManualAnalysisAllowed)
+		return createForensicAnalysis(ctx, api, cp, aesKeys, opts.RequestedAnalyses, opts.DiskEncryptionKeys, opts.ManualAnalysisAllowed, includeHash)
 	default:
 		return nil, fmt.Errorf("unsupported analysis type %q", opts.AnalysisType)
 	}
@@ -178,32 +344,45 @@ func validateCreateInputs(cp Checkpoint, opts Options) error {
 	return nil
 }
 
-func createOtherAnalysis(ctx context.Context, api AnalysisCreator, cp Checkpoint, aesKeys map[string]string) (*generated.DataAnalysisCreatedResource, error) {
+func createOtherAnalysis(ctx context.Context, api AnalysisCreator, cp Checkpoint, aesKeys map[string]string, includeHash bool) (*generated.DataAnalysisCreatedResource, error) {
 	files := make([]generated.DataAnalysisFile, 0, len(cp.Files))
 	for _, file := range cp.Files {
 		key := aesKeys[file.Name]
 		if key == "" {
 			return nil, fmt.Errorf("missing in-memory AES key for %s", file.Name)
 		}
-		hash := file.Hash
-		files = append(files, generated.DataAnalysisFile{Name: file.Name, AesKey: key, Hash: &hash})
+		analysisFile := generated.DataAnalysisFile{Name: file.Name, AesKey: key}
+		if includeHash {
+			hash := file.Hash
+			analysisFile.Hash = &hash
+		}
+		files = append(files, analysisFile)
 	}
 	req, err := ncscapi.NewOtherAnalysisRequest(files, nil)
 	if err != nil {
 		return nil, err
 	}
+	if !includeHash {
+		req, err = ncscapi.OmitNullFileHashes(req)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return api.CreateAnalysis(ctx, req)
 }
 
-func createMalwareAnalysis(ctx context.Context, api AnalysisCreator, cp Checkpoint, aesKeys map[string]string, zipPasswords map[string]string) (*generated.DataAnalysisCreatedResource, error) {
+func createMalwareAnalysis(ctx context.Context, api AnalysisCreator, cp Checkpoint, aesKeys map[string]string, zipPasswords map[string]string, includeHash bool) (*generated.DataAnalysisCreatedResource, error) {
 	files := make([]generated.MalwareDataAnalysisFile, 0, len(cp.Files))
 	for _, file := range cp.Files {
 		key := aesKeys[file.Name]
 		if key == "" {
 			return nil, fmt.Errorf("missing in-memory AES key for %s", file.Name)
 		}
-		hash := file.Hash
-		malwareFile := generated.MalwareDataAnalysisFile{Name: file.Name, AesKey: key, Hash: &hash}
+		malwareFile := generated.MalwareDataAnalysisFile{Name: file.Name, AesKey: key}
+		if includeHash {
+			hash := file.Hash
+			malwareFile.Hash = &hash
+		}
 		if password, ok := zipPasswordForFile(zipPasswords, file); ok {
 			malwareFile.ZipPassword = &password
 		}
@@ -213,10 +392,16 @@ func createMalwareAnalysis(ctx context.Context, api AnalysisCreator, cp Checkpoi
 	if err != nil {
 		return nil, err
 	}
+	if !includeHash {
+		req, err = ncscapi.OmitNullFileHashes(req)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return api.CreateAnalysis(ctx, req)
 }
 
-func createForensicAnalysis(ctx context.Context, api AnalysisCreator, cp Checkpoint, aesKeys map[string]string, requestedAnalyses map[string][]string, diskEncryptionKeys map[string]string, manualAnalysisAllowed bool) (*generated.DataAnalysisCreatedResource, error) {
+func createForensicAnalysis(ctx context.Context, api AnalysisCreator, cp Checkpoint, aesKeys map[string]string, requestedAnalyses map[string][]string, diskEncryptionKeys map[string]string, manualAnalysisAllowed bool, includeHash bool) (*generated.DataAnalysisCreatedResource, error) {
 	files := make([]generated.ForensicDataAnalysisFile, 0, len(cp.Files))
 	for _, file := range cp.Files {
 		key := aesKeys[file.Name]
@@ -227,8 +412,11 @@ func createForensicAnalysis(ctx context.Context, api AnalysisCreator, cp Checkpo
 		if !ok {
 			return nil, fmt.Errorf("missing requested analyses for forensic file %s", file.Name)
 		}
-		hash := file.Hash
-		forensicFile := generated.ForensicDataAnalysisFile{Name: file.Name, AesKey: key, Hash: &hash, RequestedAnalyses: requested}
+		forensicFile := generated.ForensicDataAnalysisFile{Name: file.Name, AesKey: key, RequestedAnalyses: requested}
+		if includeHash {
+			hash := file.Hash
+			forensicFile.Hash = &hash
+		}
 		if diskKey, ok := diskEncryptionKeyForFile(diskEncryptionKeys, file); ok {
 			forensicFile.DiskEncryptionKey = &diskKey
 		}
@@ -237,6 +425,12 @@ func createForensicAnalysis(ctx context.Context, api AnalysisCreator, cp Checkpo
 	req, err := ncscapi.NewForensicAnalysisRequest(files, manualAnalysisAllowed, nil)
 	if err != nil {
 		return nil, err
+	}
+	if !includeHash {
+		req, err = ncscapi.OmitNullFileHashes(req)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return api.CreateAnalysis(ctx, req)
 }

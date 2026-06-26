@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -31,6 +32,8 @@ var analysisCreateFlags struct {
 	requested      []string
 	diskKeys       []string
 	manualAllowed  bool
+	deferred       bool
+	output         string
 }
 
 // analysisCreateCmd represents the analysis create command.
@@ -71,6 +74,9 @@ var analysisCreateCmd = &cobra.Command{
 		}
 		if cmd.Flags().Changed("manual-analysis-allowed") && analysisCreateFlags.analysisType != analysis.AnalysisTypeForensic {
 			return errors.New("--manual-analysis-allowed can only be used with --type forensic")
+		}
+		if analysisCreateFlags.deferred {
+			return runAnalysisCreateDeferred(cmd, args, zipPasswords, requested, diskKeys)
 		}
 		workspace := analysisCreateFlags.workspaceDir
 		if workspace == "" {
@@ -144,6 +150,66 @@ func init() {
 	analysisCreateCmd.Flags().BoolVar(&analysisCreateFlags.resume, "resume", false, "strictly resume from a usable incomplete checkpoint and fail if none exists")
 	analysisCreateCmd.Flags().BoolVar(&analysisCreateFlags.new, "new", false, "create a fresh data-analysis only when no checkpoint exists at the resolved target")
 	analysisCreateCmd.Flags().BoolVar(&analysisCreateFlags.yes, "yes", false, "delete successfully uploaded encrypted artifacts without prompting")
+	analysisCreateCmd.Flags().BoolVar(&analysisCreateFlags.deferred, "deferred", false, "create upload handoff JSON without reading local files")
+	analysisCreateCmd.Flags().StringVarP(&analysisCreateFlags.output, "output", "o", "", "write deferred handoff JSON to this path instead of stdout")
+}
+
+func runAnalysisCreateDeferred(cmd *cobra.Command, args []string, zipPasswords map[string]string, requested map[string][]string, diskKeys map[string]string) error {
+	if len(args) == 0 {
+		return errors.New("at least one filename is required with --deferred")
+	}
+	if !cmd.Flags().Changed("type") {
+		return errors.New("--type is required for deferred data-analysis creation (supported: other, malware, forensic)")
+	}
+	switch analysisCreateFlags.analysisType {
+	case analysis.AnalysisTypeOther, analysis.AnalysisTypeMalware, analysis.AnalysisTypeForensic:
+	default:
+		return fmt.Errorf("unsupported analysis type %q (supported: other, malware, forensic)", analysisCreateFlags.analysisType)
+	}
+	apiClient, err := ncscapi.NewClient(ncscapi.Config{
+		BaseURL:      firstNonEmpty(analysisCreateFlags.baseURL, analysisFlags.baseURL, os.Getenv("DA_TOOLKIT_API_BASE_URL"), ncscapi.DefaultBaseURL),
+		TokenURL:     firstNonEmpty(analysisCreateFlags.tokenURL, analysisFlags.tokenURL, os.Getenv("DA_TOOLKIT_TOKEN_URL")),
+		ClientID:     firstNonEmpty(analysisCreateFlags.clientID, analysisFlags.clientID, os.Getenv("DA_TOOLKIT_CLIENT_ID")),
+		ClientSecret: firstNonEmpty(analysisCreateFlags.clientSecret, analysisFlags.clientSecret, os.Getenv("DA_TOOLKIT_CLIENT_SECRET")),
+		HTTPClient:   &http.Client{Timeout: 0},
+	})
+	if err != nil {
+		return err
+	}
+	handoff, err := analysis.CreateDeferred(cmd.Context(), analysis.Options{
+		Files:                 args,
+		AnalysisType:          analysisCreateFlags.analysisType,
+		ZipPasswords:          zipPasswords,
+		RequestedAnalyses:     requested,
+		DiskEncryptionKeys:    diskKeys,
+		ManualAnalysisAllowed: analysisCreateFlags.manualAllowed,
+		API:                   apiClient,
+		Stdout:                cmd.OutOrStdout(),
+	})
+	if err != nil {
+		return err
+	}
+	return writeHandoff(cmd, handoff, analysisCreateFlags.output)
+}
+
+func writeHandoff(cmd *cobra.Command, handoff analysis.Handoff, output string) error {
+	encoded, err := json.MarshalIndent(handoff, "", "  ")
+	if err != nil {
+		return fmt.Errorf("format handoff: %w", err)
+	}
+	warning := "Warning: handoff JSON contains AES keys and SAS bearer URLs; treat it as secret-bearing."
+	if strings.TrimSpace(output) == "" {
+		if _, err := fmt.Fprintln(cmd.ErrOrStderr(), warning); err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), string(encoded))
+		return err
+	}
+	if err := os.WriteFile(output, append(encoded, '\n'), 0o600); err != nil {
+		return fmt.Errorf("write handoff %q: %w", output, err)
+	}
+	_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\nWrote deferred upload handoff to %s\n", warning, output)
+	return err
 }
 
 func parseZipPasswordFlags(entries []string) (map[string]string, error) {

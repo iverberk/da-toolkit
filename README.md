@@ -1,6 +1,6 @@
 # da-toolkit
 
-`da-toolkit` is a CLI-first toolkit for NCSC Data Analysis API workflows. The current implemented workflow creates an `other` data-analysis from one or more existing local files, encrypts those files locally, uploads the encrypted artifacts through SAS URLs returned by the API, and stops after upload.
+`da-toolkit` is a CLI-first toolkit for NCSC Data Analysis API workflows. The implemented workflow can either create a data-analysis and immediately upload local files, or create a deferred upload handoff that another environment can encrypt and upload later.
 
 The tool is designed to keep secrets in memory only. Do not put API credentials, OAuth tokens, or AES keys in config files or checkpoint files.
 
@@ -72,6 +72,45 @@ export DA_TOOLKIT_CLIENT_SECRET="your-client-secret"
   --workspace ./upload-workspace/case-001 \
   ./evidence/file-a.bin \
   ./evidence/file-b.bin
+```
+
+## Deferred analysis creation and later upload
+
+Use `--deferred` when the machine creating the data-analysis does not have access to plaintext files. Arguments are treated as filenames only and are not statted or read. The handoff JSON contains `analysis_id` and one `filename`, `aes_key`, and `sas_url` entry per file.
+
+Handoff JSON contains AES keys and SAS bearer URLs. Treat it as secret-bearing material and store or transfer it accordingly.
+
+```sh
+/tmp/da-toolkit analysis create \
+  --deferred \
+  --type other \
+  --output ./case-001-handoff.json \
+  evidence/file-a.bin evidence/file-b.bin
+```
+
+On the machine with plaintext files, upload all handoff files:
+
+```sh
+/tmp/da-toolkit analysis upload \
+  --handoff ./case-001-handoff.json \
+  --workspace ./upload-workspace/case-001
+```
+
+Or upload one selected file. Selection matches the handoff filename exactly first, then by local basename; ambiguous basename matches fail and require an exact handoff filename.
+
+```sh
+/tmp/da-toolkit analysis upload \
+  --handoff ./case-001-handoff.json \
+  --filename ./evidence/file-a.bin
+```
+
+For manual handoff, pass the pieces explicitly:
+
+```sh
+/tmp/da-toolkit analysis upload \
+  --filename ./evidence/file-a.bin \
+  --aes-key "<base64-aes-key>" \
+  --sas-url "<sas-url>"
 ```
 
 Example with flags:
@@ -172,6 +211,19 @@ Flags:
   --type string           Data-analysis type to create (required for fresh creation: other, malware, or forensic)
   --resume                Resume from the checkpoint without creating a replacement data-analysis
   --new                   Create a fresh data-analysis only when no checkpoint exists at the resolved target
+  --yes                   Delete successfully uploaded encrypted artifacts without prompting
+  --deferred              Create upload handoff JSON without reading local files
+  --output string         Write deferred handoff JSON to this path instead of stdout
+
+da-toolkit analysis upload [flags]
+
+Flags:
+  --filename string       Local plaintext source file to encrypt and upload
+  --aes-key string        Base64 AES-256 key from deferred handoff (memory-only)
+  --sas-url string        Azure Blob SAS URL from deferred handoff
+  --handoff string        Deferred handoff JSON path
+  --workspace string      Directory for encrypted artifacts and checkpoint metadata
+  --checkpoint string     Checkpoint file for restart-resume metadata
   --yes                   Delete successfully uploaded encrypted artifacts without prompting
 ```
 
