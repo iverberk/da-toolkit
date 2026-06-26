@@ -71,6 +71,25 @@ func TestAnalysisReadOutputsMetadataPayload(t *testing.T) {
 	}
 }
 
+func TestAnalysisDeleteRequiresConfirmationAndCallsAPI(t *testing.T) {
+	var deleted uuid.UUID
+	withFakeAnalysisAPI(t, fakeAnalysisAPI{delete: func(_ context.Context, id uuid.UUID) error {
+		deleted = id
+		return nil
+	}})
+
+	stdout, stderr, err := executeCommand("analysis", "delete", testAnalysisID, "--yes")
+	if err != nil {
+		t.Fatalf("Execute returned error: %v; stderr=%s", err, stderr)
+	}
+	if deleted != uuid.MustParse(testAnalysisID) {
+		t.Fatalf("deleted id = %s, want %s", deleted, testAnalysisID)
+	}
+	if !strings.Contains(stdout, "Deleted data-analysis "+testAnalysisID) {
+		t.Fatalf("stdout missing delete confirmation:\n%s", stdout)
+	}
+}
+
 func TestAnalysisArgumentValidationDoesNotRequireCredentials(t *testing.T) {
 	t.Setenv("DA_TOOLKIT_CLIENT_ID", "")
 	t.Setenv("DA_TOOLKIT_CLIENT_SECRET", "")
@@ -189,6 +208,8 @@ const (
 type fakeAnalysisAPI struct {
 	read       analysisResults
 	readErr    error
+	delete     func(context.Context, uuid.UUID) error
+	deleteErr  error
 	archive    ncscapi.Result
 	archiveErr error
 	file       ncscapi.Result
@@ -204,6 +225,13 @@ func (f fakeAnalysisAPI) ReadAnalysis(context.Context, uuid.UUID) (analysisResul
 		return analysisResults{}, f.readErr
 	}
 	return f.read, nil
+}
+
+func (f fakeAnalysisAPI) DeleteAnalysis(ctx context.Context, id uuid.UUID) error {
+	if f.delete != nil {
+		return f.delete(ctx, id)
+	}
+	return f.deleteErr
 }
 
 func (f fakeAnalysisAPI) GetResultArchive(context.Context, uuid.UUID) (ncscapi.Result, error) {

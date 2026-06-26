@@ -74,10 +74,11 @@ func resetAnalysisCommandFlags() {
 		search        string
 		searchFields  string
 		caseSensitive bool
+		yes           bool
 		output        string
 		overwrite     bool
 	}{}
-	for _, command := range []*cobra.Command{analysisCmd, analysisListCmd, analysisReadCmd, analysisArchiveCmd, analysisFileCmd} {
+	for _, command := range []*cobra.Command{analysisCmd, analysisListCmd, analysisReadCmd, analysisDeleteCmd, analysisArchiveCmd, analysisFileCmd} {
 		command.Flags().VisitAll(func(flag *pflag.Flag) {
 			_ = flag.Value.Set(flag.DefValue)
 			flag.Changed = false

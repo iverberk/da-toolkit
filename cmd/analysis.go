@@ -17,6 +17,7 @@ import (
 type analysisAPI interface {
 	ListAnalyses(context.Context, ncscapi.ListOptions) (any, error)
 	ReadAnalysis(context.Context, uuid.UUID) (analysisResults, error)
+	DeleteAnalysis(context.Context, uuid.UUID) error
 	GetResultArchive(context.Context, uuid.UUID) (ncscapi.Result, error)
 	GetResultFile(context.Context, uuid.UUID, string) (ncscapi.Result, error)
 }
@@ -44,6 +45,10 @@ func (a ncscAnalysisAPI) ReadAnalysis(ctx context.Context, id uuid.UUID) (analys
 		files = append(files, fileResults{Name: file.Name, Results: results})
 	}
 	return analysisResults{Payload: analysis, Files: files}, nil
+}
+
+func (a ncscAnalysisAPI) DeleteAnalysis(ctx context.Context, id uuid.UUID) error {
+	return a.client.DeleteAnalysis(ctx, id)
 }
 
 func (a ncscAnalysisAPI) GetResultArchive(ctx context.Context, id uuid.UUID) (ncscapi.Result, error) {
@@ -81,6 +86,7 @@ var analysisFlags struct {
 	search        string
 	searchFields  string
 	caseSensitive bool
+	yes           bool
 	output        string
 	overwrite     bool
 }
@@ -154,6 +160,37 @@ var analysisReadCmd = &cobra.Command{
 			return err
 		}
 		return writeJSON(cmd, analysis.Payload)
+	},
+}
+
+var analysisDeleteCmd = &cobra.Command{
+	Use:   "delete <analysis-id>",
+	Short: "delete one data-analysis",
+	Long:  "Delete one data-analysis after explicit confirmation. Pass --yes to confirm non-interactively.",
+	Args:  uuidArg("analysis-id"),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		id := uuid.MustParse(args[0])
+		confirmed := analysisFlags.yes
+		if !confirmed {
+			fmt.Fprintf(cmd.OutOrStdout(), "Delete data-analysis %s? [y/N]: ", id)
+			var response string
+			_, _ = fmt.Fscanln(cmd.InOrStdin(), &response)
+			confirmed = strings.EqualFold(strings.TrimSpace(response), "y") || strings.EqualFold(strings.TrimSpace(response), "yes")
+		}
+		if !confirmed {
+			_, err := fmt.Fprintln(cmd.OutOrStdout(), "Delete cancelled.")
+			return err
+		}
+
+		api, err := newAnalysisAPI()
+		if err != nil {
+			return err
+		}
+		if err := api.DeleteAnalysis(cmd.Context(), id); err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Deleted data-analysis %s\n", id)
+		return err
 	},
 }
 
@@ -238,13 +275,14 @@ func init() {
 	analysisListCmd.Flags().StringVar(&analysisFlags.search, "search", "", "search query")
 	analysisListCmd.Flags().StringVar(&analysisFlags.searchFields, "search-fields", "", "comma-separated fields to search")
 	analysisListCmd.Flags().BoolVar(&analysisFlags.caseSensitive, "case-sensitive", false, "use case-sensitive search")
+	analysisDeleteCmd.Flags().BoolVar(&analysisFlags.yes, "yes", false, "confirm deletion without prompting")
 
 	for _, command := range []*cobra.Command{analysisArchiveCmd, analysisFileCmd} {
 		command.Flags().StringVarP(&analysisFlags.output, "output", "o", "", "local output path for downloaded result bytes")
 		command.Flags().BoolVar(&analysisFlags.overwrite, "overwrite", false, "overwrite an existing output file")
 	}
 
-	analysisCmd.AddCommand(analysisCreateCmd, analysisListCmd, analysisReadCmd, analysisArchiveCmd, analysisFileCmd)
+	analysisCmd.AddCommand(analysisCreateCmd, analysisListCmd, analysisReadCmd, analysisDeleteCmd, analysisArchiveCmd, analysisFileCmd)
 	rootCmd.AddCommand(analysisCmd)
 }
 
