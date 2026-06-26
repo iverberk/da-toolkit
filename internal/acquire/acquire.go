@@ -106,12 +106,28 @@ func ensureAcquireSitePackages(sitePackagesDir string, debug bool, diagnostics i
 		debugf(diagnostics, debug, "site-packages-status=reuse\n")
 		return nil
 	}
+	if err := verifyEmbeddedAcquireSitePackages(); err != nil {
+		return err
+	}
 	debugf(diagnostics, debug, "site-packages-status=extract\n")
 	if err := bootstrapAcquire(sitePackagesDir); err != nil {
 		return err
 	}
 	if err := verifyAcquireSitePackages(sitePackagesDir); err != nil {
 		return fmt.Errorf("verify extracted acquire site-packages: %w", err)
+	}
+	return nil
+}
+
+func verifyEmbeddedAcquireSitePackages() error {
+	for _, path := range []string{
+		filepath.ToSlash(filepath.Join(embeddedSitePackagesPath(), "acquire", "acquire.py")),
+		filepath.ToSlash(filepath.Join(embeddedSitePackagesPath(), "acquire-"+AcquireVersion+".dist-info", "METADATA")),
+		filepath.ToSlash(filepath.Join(embeddedSitePackagesPath(), "dissect", "target", "__init__.py")),
+	} {
+		if _, err := fs.Stat(embeddedAcquireSitePackages, path); err != nil {
+			return fmt.Errorf("embedded acquire site-packages payload is not prepared for %s; run scripts/build-binary.sh to build a binary with embedded payloads, or set DA_TOOLKIT_KEEP_EMBEDDED_PAYLOADS=1 while running that script before using go run from source: %w", runtimePlatform(), err)
+		}
 	}
 	return nil
 }

@@ -175,10 +175,14 @@ Flags:
   --yes                   Delete successfully uploaded encrypted artifacts without prompting
 ```
 
-Additional implemented command groups include `analysis` for retrieval and `acquire` for running Dissect/acquire through the embedded Python runtime:
+Additional implemented command groups include `analysis` for retrieval, `acquire` for running Dissect/acquire through the embedded Python runtime, and `vol` for running Volatility 3 through the embedded Python runtime:
 
 ```text
 da-toolkit acquire [acquire args/options...]
+
+da-toolkit vol [volatility3 args/options...]
 ```
 
 Arguments after `da-toolkit acquire` are forwarded directly to Dissect/acquire. Runtime and dependency artifacts are prepared and reused under `.da-toolkit/acquire` in the current working directory by default, or under `DA_TOOLKIT_ACQUIRE_HOME` when set.
+
+Arguments after `da-toolkit vol` are forwarded directly to the upstream Volatility 3 `vol` console-script entrypoint. Runtime and dependency artifacts are prepared and reused under `.da-toolkit/vol` in the current working directory by default, or under `DA_TOOLKIT_VOL_HOME` when set. Volatility symbols and caches remain native to Volatility 3; the toolkit does not bundle symbol packs or add toolkit-specific symbol management.

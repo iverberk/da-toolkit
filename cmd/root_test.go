@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"da-toolkit/internal/acquire"
+	"da-toolkit/internal/vol"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -26,6 +27,7 @@ func executeCommand(args ...string) (string, string, error) {
 	rootCmd.SetErr(os.Stderr)
 	rootCmd.SetArgs(nil)
 	resetAcquireCommandFlags()
+	resetVolCommandFlags()
 	resetAnalysisCreateCommandFlags()
 	resetAnalysisCommandFlags()
 	return stdout.String(), stderr.String(), err
@@ -33,6 +35,10 @@ func executeCommand(args ...string) (string, string, error) {
 
 func resetAcquireCommandFlags() {
 	runAcquire = acquire.Run
+}
+
+func resetVolCommandFlags() {
+	runVol = vol.Run
 }
 
 func resetAnalysisCreateCommandFlags() {
@@ -99,7 +105,7 @@ func TestHelpIsConciseAndUsesCobraCommandList(t *testing.T) {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
 
-	for _, want := range []string{"Create, inspect, and retrieve data-analyses, and run acquire workflows.", "Available Commands:", "analysis", "acquire"} {
+	for _, want := range []string{"Create, inspect, and retrieve data-analyses, and run acquire workflows.", "Available Commands:", "analysis", "acquire", "vol"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("help missing %q:\n%s", want, stdout)
 		}
@@ -129,7 +135,7 @@ func commandNamed(command *cobra.Command, name string) bool {
 }
 
 func TestRemovedTopLevelCommandsAreUnavailable(t *testing.T) {
-	for _, name := range []string{"upload", "result", "gui", "acquisition"} {
+	for _, name := range []string{"upload", "result", "gui", "acquisition", "volshell"} {
 		t.Run(name, func(t *testing.T) {
 			_, _, err := executeCommand(name)
 			if err == nil || !strings.Contains(err.Error(), "unknown command") {
@@ -177,6 +183,48 @@ func TestAcquireForwardsArbitraryArgsAndHidesPocSurface(t *testing.T) {
 	for _, removed := range []string{"runtime-dir", "site-packages", "bootstrap", "cleanup", "acquire-arg"} {
 		if acquireCmd.Flags().Lookup(removed) != nil || acquireCmd.PersistentFlags().Lookup(removed) != nil {
 			t.Fatalf("PoC-only flag %q is still registered", removed)
+		}
+	}
+}
+
+func TestVolForwardsHelpToEmbeddedVolatility(t *testing.T) {
+	var gotArgs []string
+	runVol = func(_ context.Context, opts vol.Options) error {
+		gotArgs = append([]string(nil), opts.Args...)
+		_, _ = opts.Stdout.Write([]byte("Volatility 3 Framework help\n"))
+		return nil
+	}
+	stdout, stderr, err := executeCommand("vol", "--help")
+	if err != nil {
+		t.Fatalf("Execute returned error: %v; stderr=%s", err, stderr)
+	}
+	if !reflect.DeepEqual(gotArgs, []string{"--help"}) {
+		t.Fatalf("forwarded args = %v, want --help", gotArgs)
+	}
+	if !strings.Contains(stdout, "Volatility 3 Framework help") {
+		t.Fatalf("stdout missing forwarded help:\n%s", stdout)
+	}
+}
+
+func TestVolForwardsArbitraryArgsAndDoesNotExposeVolshell(t *testing.T) {
+	var gotArgs []string
+	runVol = func(_ context.Context, opts vol.Options) error {
+		gotArgs = append([]string(nil), opts.Args...)
+		return nil
+	}
+	_, _, err := executeCommand("vol", "-f", "memory.raw", "windows.info")
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if want := []string{"-f", "memory.raw", "windows.info"}; !reflect.DeepEqual(gotArgs, want) {
+		t.Fatalf("forwarded args = %v, want %v", gotArgs, want)
+	}
+	if commandNamed(volCmd, "volshell") || commandNamed(rootCmd, "volshell") {
+		t.Fatal("volshell is registered as a public command")
+	}
+	for _, removed := range []string{"runtime-dir", "site-packages", "bootstrap", "cleanup", "vol-arg"} {
+		if volCmd.Flags().Lookup(removed) != nil || volCmd.PersistentFlags().Lookup(removed) != nil {
+			t.Fatalf("wrapper-specific flag %q is registered", removed)
 		}
 	}
 }

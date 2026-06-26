@@ -10,3 +10,13 @@ internal/acquire/embedded/site-packages/linux-amd64/*
 internal/acquire/embedded/site-packages/windows-amd64/*
 !internal/acquire/embedded/site-packages/windows-amd64/.gitkeep
 !internal/acquire/embedded/site-packages/windows-amd64/placeholder.txt
+internal/vol/embedded/site-packages/linux-arm64/*
+!internal/vol/embedded/site-packages/linux-arm64/.gitkeep
+!internal/vol/embedded/site-packages/linux-arm64/placeholder.txt
+internal/vol/embedded/site-packages/linux-amd64/*
+!internal/vol/embedded/site-packages/linux-amd64/.gitkeep
+!internal/vol/embedded/site-packages/linux-amd64/placeholder.txt
+internal/vol/embedded/site-packages/windows-amd64/*
+!internal/vol/embedded/site-packages/windows-amd64/.gitkeep
+!internal/vol/embedded/site-packages/windows-amd64/placeholder.txt
+.direnv

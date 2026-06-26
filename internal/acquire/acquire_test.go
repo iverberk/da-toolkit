@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -97,6 +98,29 @@ func TestEnsureAcquireSitePackagesReusesVerifiedExtraction(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); err != nil {
 		t.Fatalf("verified site-packages were not reused: %v", err)
+	}
+}
+
+func TestEnsureAcquireSitePackagesFailsClearlyWhenEmbeddedPayloadMissing(t *testing.T) {
+	if err := verifyEmbeddedAcquireSitePackages(); err == nil {
+		t.Skip("full embedded acquire site-packages are present")
+	}
+
+	sitePackagesDir := filepath.Join(t.TempDir(), "site-packages")
+	err := ensureAcquireSitePackages(sitePackagesDir, false, nil)
+	if err == nil {
+		t.Fatal("ensureAcquireSitePackages() error = nil, want missing payload error")
+	}
+	for _, want := range []string{
+		"embedded acquire site-packages payload is not prepared",
+		"go run from source",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("ensureAcquireSitePackages() error = %q, want to contain %q", err.Error(), want)
+		}
+	}
+	if _, statErr := os.Stat(filepath.Join(sitePackagesDir, "placeholder.txt")); !os.IsNotExist(statErr) {
+		t.Fatalf("placeholder payload was extracted before readiness check: %v", statErr)
 	}
 }
 
