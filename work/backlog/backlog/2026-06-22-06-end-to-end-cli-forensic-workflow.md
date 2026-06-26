@@ -15,7 +15,7 @@ After upload, result retrieval, and acquire packaging are validated separately, 
 - Collect required requested analyses and optional forensic fields.
 - Encrypt, hash, and upload acquired artifacts using the existing upload engine.
 - Report per-file progress and partial progress.
-- Stop at successful upload and show the data-analysis ID for later result retrieval commands.
+- Stop at successful upload and show the data-analysis ID for later analysis retrieval subcommands.
 
 ## Technical Requirements
 

@@ -14,20 +14,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type resultAPI interface {
+type analysisAPI interface {
 	ListAnalyses(context.Context, ncscapi.ListOptions) (any, error)
 	ReadAnalysis(context.Context, uuid.UUID) (analysisResults, error)
 	GetResultArchive(context.Context, uuid.UUID) (ncscapi.Result, error)
 	GetResultFile(context.Context, uuid.UUID, string) (ncscapi.Result, error)
 }
 
-type ncscResultAPI struct{ client *ncscapi.Client }
+type ncscAnalysisAPI struct{ client *ncscapi.Client }
 
-func (a ncscResultAPI) ListAnalyses(ctx context.Context, opts ncscapi.ListOptions) (any, error) {
+func (a ncscAnalysisAPI) ListAnalyses(ctx context.Context, opts ncscapi.ListOptions) (any, error) {
 	return a.client.ListAnalyses(ctx, opts)
 }
 
-func (a ncscResultAPI) ReadAnalysis(ctx context.Context, id uuid.UUID) (analysisResults, error) {
+func (a ncscAnalysisAPI) ReadAnalysis(ctx context.Context, id uuid.UUID) (analysisResults, error) {
 	analysis, err := a.client.ReadAnalysis(ctx, id)
 	if err != nil {
 		return analysisResults{}, err
@@ -46,11 +46,11 @@ func (a ncscResultAPI) ReadAnalysis(ctx context.Context, id uuid.UUID) (analysis
 	return analysisResults{Payload: analysis, Files: files}, nil
 }
 
-func (a ncscResultAPI) GetResultArchive(ctx context.Context, id uuid.UUID) (ncscapi.Result, error) {
+func (a ncscAnalysisAPI) GetResultArchive(ctx context.Context, id uuid.UUID) (ncscapi.Result, error) {
 	return a.client.GetResultArchive(ctx, id)
 }
 
-func (a ncscResultAPI) GetResultFile(ctx context.Context, id uuid.UUID, name string) (ncscapi.Result, error) {
+func (a ncscAnalysisAPI) GetResultFile(ctx context.Context, id uuid.UUID, name string) (ncscapi.Result, error) {
 	return a.client.GetResultFile(ctx, id, name)
 }
 
@@ -69,7 +69,7 @@ type resultMetadata struct {
 	Size int
 }
 
-var resultFlags struct {
+var analysisFlags struct {
 	baseURL       string
 	tokenURL      string
 	clientID      string
@@ -85,50 +85,50 @@ var resultFlags struct {
 	overwrite     bool
 }
 
-var newResultAPI = func() (resultAPI, error) {
+var newAnalysisAPI = func() (analysisAPI, error) {
 	client, err := ncscapi.NewClient(ncscapi.Config{
-		BaseURL:      firstNonEmpty(resultFlags.baseURL, os.Getenv("DA_TOOLKIT_API_BASE_URL"), ncscapi.DefaultBaseURL),
-		TokenURL:     firstNonEmpty(resultFlags.tokenURL, os.Getenv("DA_TOOLKIT_TOKEN_URL")),
-		ClientID:     firstNonEmpty(resultFlags.clientID, os.Getenv("DA_TOOLKIT_CLIENT_ID")),
-		ClientSecret: firstNonEmpty(resultFlags.clientSecret, os.Getenv("DA_TOOLKIT_CLIENT_SECRET")),
+		BaseURL:      firstNonEmpty(analysisFlags.baseURL, os.Getenv("DA_TOOLKIT_API_BASE_URL"), ncscapi.DefaultBaseURL),
+		TokenURL:     firstNonEmpty(analysisFlags.tokenURL, os.Getenv("DA_TOOLKIT_TOKEN_URL")),
+		ClientID:     firstNonEmpty(analysisFlags.clientID, os.Getenv("DA_TOOLKIT_CLIENT_ID")),
+		ClientSecret: firstNonEmpty(analysisFlags.clientSecret, os.Getenv("DA_TOOLKIT_CLIENT_SECRET")),
 		HTTPClient:   &http.Client{Timeout: 0},
 	})
 	if err != nil {
 		return nil, err
 	}
-	return ncscResultAPI{client: client}, nil
+	return ncscAnalysisAPI{client: client}, nil
 }
 
-// resultCmd represents the analysis command.
-var resultCmd = &cobra.Command{
+// analysisCmd represents the analysis command.
+var analysisCmd = &cobra.Command{
 	Use:   "analysis",
 	Short: "work with data-analyses",
 	Long:  "Create data-analyses, list and read data-analysis metadata, and download available result archives or files.",
 	Args:  cobra.NoArgs,
 }
 
-var resultListCmd = &cobra.Command{
+var analysisListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "list data-analyses",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		api, err := newResultAPI()
+		api, err := newAnalysisAPI()
 		if err != nil {
 			return err
 		}
 		var page, size *int
 		if cmd.Flags().Changed("page") {
-			page = &resultFlags.page
+			page = &analysisFlags.page
 		}
 		if cmd.Flags().Changed("size") {
-			size = &resultFlags.size
+			size = &analysisFlags.size
 		}
 		listed, err := api.ListAnalyses(cmd.Context(), ncscapi.ListOptions{
-			Filters:       optionalString(resultFlags.filters),
-			Sort:          optionalString(resultFlags.sort),
-			Search:        optionalString(resultFlags.search),
-			SearchFields:  optionalString(resultFlags.searchFields),
-			CaseSensitive: optionalBool(cmd.Flags().Changed("case-sensitive"), resultFlags.caseSensitive),
+			Filters:       optionalString(analysisFlags.filters),
+			Sort:          optionalString(analysisFlags.sort),
+			Search:        optionalString(analysisFlags.search),
+			SearchFields:  optionalString(analysisFlags.searchFields),
+			CaseSensitive: optionalBool(cmd.Flags().Changed("case-sensitive"), analysisFlags.caseSensitive),
 			Page:          page,
 			Size:          size,
 		})
@@ -139,13 +139,13 @@ var resultListCmd = &cobra.Command{
 	},
 }
 
-var resultReadCmd = &cobra.Command{
+var analysisReadCmd = &cobra.Command{
 	Use:   "read <analysis-id>",
 	Short: "read one data-analysis",
 	Args:  uuidArg("analysis-id"),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := uuid.MustParse(args[0])
-		api, err := newResultAPI()
+		api, err := newAnalysisAPI()
 		if err != nil {
 			return err
 		}
@@ -157,16 +157,16 @@ var resultReadCmd = &cobra.Command{
 	},
 }
 
-var resultArchiveCmd = &cobra.Command{
+var analysisArchiveCmd = &cobra.Command{
 	Use:   "archive <analysis-id>",
 	Short: "download a result archive",
 	Args:  uuidArg("analysis-id"),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := uuid.MustParse(args[0])
-		if strings.TrimSpace(resultFlags.output) == "" {
+		if strings.TrimSpace(analysisFlags.output) == "" {
 			return errors.New("--output is required")
 		}
-		api, err := newResultAPI()
+		api, err := newAnalysisAPI()
 		if err != nil {
 			return err
 		}
@@ -181,11 +181,11 @@ var resultArchiveCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return writeResultFile(cmd, resultFlags.output, result.Body, resultFlags.overwrite)
+		return writeResultFile(cmd, analysisFlags.output, result.Body, analysisFlags.overwrite)
 	},
 }
 
-var resultFileCmd = &cobra.Command{
+var analysisFileCmd = &cobra.Command{
 	Use:   "file <analysis-id> <result-name>",
 	Short: "download a named result file",
 	Args: func(cmd *cobra.Command, args []string) error {
@@ -203,10 +203,10 @@ var resultFileCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := uuid.MustParse(args[0])
 		name := args[1]
-		if strings.TrimSpace(resultFlags.output) == "" {
+		if strings.TrimSpace(analysisFlags.output) == "" {
 			return errors.New("--output is required")
 		}
-		api, err := newResultAPI()
+		api, err := newAnalysisAPI()
 		if err != nil {
 			return err
 		}
@@ -221,31 +221,31 @@ var resultFileCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return writeResultFile(cmd, resultFlags.output, result.Body, resultFlags.overwrite)
+		return writeResultFile(cmd, analysisFlags.output, result.Body, analysisFlags.overwrite)
 	},
 }
 
 func init() {
-	resultCmd.PersistentFlags().StringVar(&resultFlags.baseURL, "base-url", "", "NCSC Data Analysis API base URL (or DA_TOOLKIT_API_BASE_URL)")
-	resultCmd.PersistentFlags().StringVar(&resultFlags.tokenURL, "token-url", "", "OAuth token URL (or DA_TOOLKIT_TOKEN_URL)")
-	resultCmd.PersistentFlags().StringVar(&resultFlags.clientID, "client-id", "", "OAuth client ID (or DA_TOOLKIT_CLIENT_ID)")
-	resultCmd.PersistentFlags().StringVar(&resultFlags.clientSecret, "client-secret", "", "OAuth client secret (or DA_TOOLKIT_CLIENT_SECRET; memory-only)")
+	analysisCmd.PersistentFlags().StringVar(&analysisFlags.baseURL, "base-url", "", "NCSC Data Analysis API base URL (or DA_TOOLKIT_API_BASE_URL)")
+	analysisCmd.PersistentFlags().StringVar(&analysisFlags.tokenURL, "token-url", "", "OAuth token URL (or DA_TOOLKIT_TOKEN_URL)")
+	analysisCmd.PersistentFlags().StringVar(&analysisFlags.clientID, "client-id", "", "OAuth client ID (or DA_TOOLKIT_CLIENT_ID)")
+	analysisCmd.PersistentFlags().StringVar(&analysisFlags.clientSecret, "client-secret", "", "OAuth client secret (or DA_TOOLKIT_CLIENT_SECRET; memory-only)")
 
-	resultListCmd.Flags().IntVar(&resultFlags.page, "page", 0, "page number to request")
-	resultListCmd.Flags().IntVar(&resultFlags.size, "size", 0, "page size to request")
-	resultListCmd.Flags().StringVar(&resultFlags.filters, "filters", "", "API filter expression")
-	resultListCmd.Flags().StringVar(&resultFlags.sort, "sort", "", "API sort expression")
-	resultListCmd.Flags().StringVar(&resultFlags.search, "search", "", "search query")
-	resultListCmd.Flags().StringVar(&resultFlags.searchFields, "search-fields", "", "comma-separated fields to search")
-	resultListCmd.Flags().BoolVar(&resultFlags.caseSensitive, "case-sensitive", false, "use case-sensitive search")
+	analysisListCmd.Flags().IntVar(&analysisFlags.page, "page", 0, "page number to request")
+	analysisListCmd.Flags().IntVar(&analysisFlags.size, "size", 0, "page size to request")
+	analysisListCmd.Flags().StringVar(&analysisFlags.filters, "filters", "", "API filter expression")
+	analysisListCmd.Flags().StringVar(&analysisFlags.sort, "sort", "", "API sort expression")
+	analysisListCmd.Flags().StringVar(&analysisFlags.search, "search", "", "search query")
+	analysisListCmd.Flags().StringVar(&analysisFlags.searchFields, "search-fields", "", "comma-separated fields to search")
+	analysisListCmd.Flags().BoolVar(&analysisFlags.caseSensitive, "case-sensitive", false, "use case-sensitive search")
 
-	for _, command := range []*cobra.Command{resultArchiveCmd, resultFileCmd} {
-		command.Flags().StringVarP(&resultFlags.output, "output", "o", "", "local output path for downloaded result bytes")
-		command.Flags().BoolVar(&resultFlags.overwrite, "overwrite", false, "overwrite an existing output file")
+	for _, command := range []*cobra.Command{analysisArchiveCmd, analysisFileCmd} {
+		command.Flags().StringVarP(&analysisFlags.output, "output", "o", "", "local output path for downloaded result bytes")
+		command.Flags().BoolVar(&analysisFlags.overwrite, "overwrite", false, "overwrite an existing output file")
 	}
 
-	resultCmd.AddCommand(analysisCreateCmd, resultListCmd, resultReadCmd, resultArchiveCmd, resultFileCmd)
-	rootCmd.AddCommand(resultCmd)
+	analysisCmd.AddCommand(analysisCreateCmd, analysisListCmd, analysisReadCmd, analysisArchiveCmd, analysisFileCmd)
+	rootCmd.AddCommand(analysisCmd)
 }
 
 func uuidArg(name string) cobra.PositionalArgs {

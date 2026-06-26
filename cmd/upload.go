@@ -110,10 +110,10 @@ var analysisCreateCmd = &cobra.Command{
 		var client upload.AnalysisCreator
 		if mode == upload.RunModeCreate {
 			apiClient, err := ncscapi.NewClient(ncscapi.Config{
-				BaseURL:      firstNonEmpty(uploadFlags.baseURL, resultFlags.baseURL, os.Getenv("DA_TOOLKIT_API_BASE_URL"), ncscapi.DefaultBaseURL),
-				TokenURL:     firstNonEmpty(uploadFlags.tokenURL, resultFlags.tokenURL, os.Getenv("DA_TOOLKIT_TOKEN_URL")),
-				ClientID:     firstNonEmpty(uploadFlags.clientID, resultFlags.clientID, os.Getenv("DA_TOOLKIT_CLIENT_ID")),
-				ClientSecret: firstNonEmpty(uploadFlags.clientSecret, resultFlags.clientSecret, os.Getenv("DA_TOOLKIT_CLIENT_SECRET")),
+				BaseURL:      firstNonEmpty(uploadFlags.baseURL, analysisFlags.baseURL, os.Getenv("DA_TOOLKIT_API_BASE_URL"), ncscapi.DefaultBaseURL),
+				TokenURL:     firstNonEmpty(uploadFlags.tokenURL, analysisFlags.tokenURL, os.Getenv("DA_TOOLKIT_TOKEN_URL")),
+				ClientID:     firstNonEmpty(uploadFlags.clientID, analysisFlags.clientID, os.Getenv("DA_TOOLKIT_CLIENT_ID")),
+				ClientSecret: firstNonEmpty(uploadFlags.clientSecret, analysisFlags.clientSecret, os.Getenv("DA_TOOLKIT_CLIENT_SECRET")),
 				HTTPClient:   &http.Client{Timeout: 0},
 			})
 			if err != nil {

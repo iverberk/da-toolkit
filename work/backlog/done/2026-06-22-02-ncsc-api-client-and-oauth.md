@@ -54,7 +54,7 @@ The Go API binding should be generated from the NCSC OpenAPI specification with 
 
 - `go.mod` / `go.sum` - may need `oapi-codegen` runtime types and OAuth/client dependencies; currently only Cobra is required.
 - `internal/config/config.go` and `internal/config/config_test.go` - likely should remain mostly unchanged, but tests may add guard coverage if new credential option types risk persistent config use; existing config already rejects secret-like persisted fields.
-- `cmd/analysis.go` and `cmd/result.go` - only update if a minimal compile-time dependency or help wording is needed; acceptance criteria explicitly keep result retrieval client functions from becoming final user-facing workflow commands in this story.
+- `cmd/analysis.go` - only update if a minimal compile-time dependency or help wording is needed; acceptance criteria explicitly keep result retrieval client functions from becoming final user-facing workflow commands in this story.
 
 ### Existing Patterns / Prior Art
 

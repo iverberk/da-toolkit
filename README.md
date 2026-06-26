@@ -32,7 +32,7 @@ For each run, the tool:
 12. Prints one end-of-run summary.
 13. Prompts once to delete encrypted artifacts for successfully uploaded files.
 
-The command does **not** retrieve results. Use future/result commands separately when result retrieval is implemented for your workflow.
+The command does **not** retrieve results. Use the `analysis` retrieval subcommands separately when needed.
 
 ## Required information
 
@@ -175,7 +175,7 @@ Flags:
   --yes                   Delete successfully uploaded encrypted artifacts without prompting
 ```
 
-Additional implemented command groups include `result` for retrieval and `acquire` for running Dissect/acquire through the embedded Python runtime:
+Additional implemented command groups include `analysis` for retrieval and `acquire` for running Dissect/acquire through the embedded Python runtime:
 
 ```text
 da-toolkit acquire [acquire args/options...]

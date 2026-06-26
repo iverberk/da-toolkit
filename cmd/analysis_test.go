@@ -22,45 +22,45 @@ func TestAnalysisListUsesPaginationAndOAuthWithoutLeakingSecrets(t *testing.T) {
 		switch r.URL.Path {
 		case "/oauth/token":
 			id, secret, ok := r.BasicAuth()
-			if !ok || id != testResultClientID || secret != testResultClientSecret {
+			if !ok || id != testAnalysisClientID || secret != testAnalysisClientSecret {
 				t.Fatalf("basic auth = %q/%q/%v, want configured credentials", id, secret, ok)
 			}
-			writeResultJSON(t, w, http.StatusOK, map[string]any{"access_token": testResultAccessToken, "token_type": "Bearer", "expires_in": 3600})
+			writeAnalysisJSON(t, w, http.StatusOK, map[string]any{"access_token": testAnalysisAccessToken, "token_type": "Bearer", "expires_in": 3600})
 		case "/v1/data-analyses":
-			if got := r.Header.Get("Authorization"); got != "Bearer "+testResultAccessToken {
+			if got := r.Header.Get("Authorization"); got != "Bearer "+testAnalysisAccessToken {
 				t.Fatalf("Authorization = %q, want bearer token", got)
 			}
 			if r.URL.Query().Get("page") != "2" || r.URL.Query().Get("size") != "10" {
 				t.Fatalf("query = %s, want page=2&size=10", r.URL.RawQuery)
 			}
-			writeResultJSON(t, w, http.StatusOK, map[string]any{"items": []any{map[string]any{"id": testResultAnalysisID, "type": "other", "status": "completed", "metadata": map[string]string{"case": "x"}}}, "total": 1, "page": 2, "size": 10, "pages": 1})
+			writeAnalysisJSON(t, w, http.StatusOK, map[string]any{"items": []any{map[string]any{"id": testAnalysisID, "type": "other", "status": "completed", "metadata": map[string]string{"case": "x"}}}, "total": 1, "page": 2, "size": 10, "pages": 1})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
 	defer server.Close()
 
-	stdout, stderr, err := executeCommand("analysis", "list", "--base-url", server.URL, "--token-url", server.URL+"/oauth/token", "--client-id", testResultClientID, "--client-secret", testResultClientSecret, "--page", "2", "--size", "10")
+	stdout, stderr, err := executeCommand("analysis", "list", "--base-url", server.URL, "--token-url", server.URL+"/oauth/token", "--client-id", testAnalysisClientID, "--client-secret", testAnalysisClientSecret, "--page", "2", "--size", "10")
 	if err != nil {
 		t.Fatalf("Execute returned error: %v; stderr=%s", err, stderr)
 	}
-	for _, want := range []string{"\"page\": 2", testResultAnalysisID} {
+	for _, want := range []string{"\"page\": 2", testAnalysisID} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("stdout missing %q:\n%s", want, stdout)
 		}
 	}
-	assertResultNoSecrets(t, stdout+stderr)
+	assertAnalysisNoSecrets(t, stdout+stderr)
 }
 
 func TestAnalysisReadOutputsMetadataPayload(t *testing.T) {
-	withFakeResultAPI(t, fakeResultAPI{
+	withFakeAnalysisAPI(t, fakeAnalysisAPI{
 		read: analysisResults{
-			Payload: map[string]any{"id": testResultAnalysisID, "files": []map[string]any{{"name": "sample.bin", "results": []map[string]any{{"name": "report.json", "size": 11}}}}},
+			Payload: map[string]any{"id": testAnalysisID, "files": []map[string]any{{"name": "sample.bin", "results": []map[string]any{{"name": "report.json", "size": 11}}}}},
 			Files:   []fileResults{{Name: "sample.bin", Results: []resultMetadata{{Name: "report.json", Size: 11}}}},
 		},
 	})
 
-	stdout, stderr, err := executeCommand("analysis", "read", testResultAnalysisID)
+	stdout, stderr, err := executeCommand("analysis", "read", testAnalysisID)
 	if err != nil {
 		t.Fatalf("Execute returned error: %v; stderr=%s", err, stderr)
 	}
@@ -89,9 +89,9 @@ func TestAnalysisArchiveDownloadDoesNotOverwriteUnlessExplicit(t *testing.T) {
 	if err := os.WriteFile(out, []byte("existing"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	withFakeResultAPI(t, fakeResultAPI{read: analysisWithResult("report.json"), archive: ncscapi.Result{Body: []byte("zip-bytes")}})
+	withFakeAnalysisAPI(t, fakeAnalysisAPI{read: analysisWithResult("report.json"), archive: ncscapi.Result{Body: []byte("zip-bytes")}})
 
-	_, _, err := executeCommand("analysis", "archive", testResultAnalysisID, "--output", out)
+	_, _, err := executeCommand("analysis", "archive", testAnalysisID, "--output", out)
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("error = %v, want overwrite protection", err)
 	}
@@ -103,7 +103,7 @@ func TestAnalysisArchiveDownloadDoesNotOverwriteUnlessExplicit(t *testing.T) {
 		t.Fatalf("file content = %q, want existing", got)
 	}
 
-	stdout, stderr, err := executeCommand("analysis", "archive", testResultAnalysisID, "--output", out, "--overwrite")
+	stdout, stderr, err := executeCommand("analysis", "archive", testAnalysisID, "--output", out, "--overwrite")
 	if err != nil {
 		t.Fatalf("Execute returned error: %v; stderr=%s", err, stderr)
 	}
@@ -118,9 +118,9 @@ func TestAnalysisArchiveDownloadDoesNotOverwriteUnlessExplicit(t *testing.T) {
 
 func TestAnalysisFileDownloadRequiresAvailableNamedResult(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "report.json")
-	withFakeResultAPI(t, fakeResultAPI{read: analysisWithResult("other.json"), file: ncscapi.Result{Body: []byte(`{"ok":true}`)}})
+	withFakeAnalysisAPI(t, fakeAnalysisAPI{read: analysisWithResult("other.json"), file: ncscapi.Result{Body: []byte(`{"ok":true}`)}})
 
-	_, _, err := executeCommand("analysis", "file", testResultAnalysisID, "report.json", "--output", out)
+	_, _, err := executeCommand("analysis", "file", testAnalysisID, "report.json", "--output", out)
 	if err == nil || !strings.Contains(err.Error(), "does not report result file") {
 		t.Fatalf("error = %v, want missing result metadata", err)
 	}
@@ -128,8 +128,8 @@ func TestAnalysisFileDownloadRequiresAvailableNamedResult(t *testing.T) {
 		t.Fatalf("output stat err = %v, want no file", statErr)
 	}
 
-	withFakeResultAPI(t, fakeResultAPI{read: analysisWithResult("report.json"), file: ncscapi.Result{Body: []byte(`{"ok":true}`)}})
-	if _, stderr, err := executeCommand("analysis", "file", testResultAnalysisID, "report.json", "--output", out); err != nil {
+	withFakeAnalysisAPI(t, fakeAnalysisAPI{read: analysisWithResult("report.json"), file: ncscapi.Result{Body: []byte(`{"ok":true}`)}})
+	if _, stderr, err := executeCommand("analysis", "file", testAnalysisID, "report.json", "--output", out); err != nil {
 		t.Fatalf("Execute returned error: %v; stderr=%s", err, stderr)
 	}
 	got, err := os.ReadFile(out)
@@ -142,9 +142,9 @@ func TestAnalysisFileDownloadRequiresAvailableNamedResult(t *testing.T) {
 }
 
 func TestAnalysisReadReportsNotFoundFromAPI(t *testing.T) {
-	withFakeResultAPI(t, fakeResultAPI{readErr: &ncscapi.APIError{Operation: "read data-analysis", StatusCode: http.StatusNotFound, Message: http.StatusText(http.StatusNotFound)}})
+	withFakeAnalysisAPI(t, fakeAnalysisAPI{readErr: &ncscapi.APIError{Operation: "read data-analysis", StatusCode: http.StatusNotFound, Message: http.StatusText(http.StatusNotFound)}})
 
-	stdout, _, err := executeCommand("analysis", "read", testResultAnalysisID)
+	stdout, _, err := executeCommand("analysis", "read", testAnalysisID)
 	if err == nil || !strings.Contains(err.Error(), "status 404") || !strings.Contains(err.Error(), "Not Found") {
 		t.Fatalf("error = %v, want clear not-found API error", err)
 	}
@@ -155,9 +155,9 @@ func TestAnalysisReadReportsNotFoundFromAPI(t *testing.T) {
 
 func TestAnalysisDownloadReportsNotFoundFromAPI(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "results.zip")
-	withFakeResultAPI(t, fakeResultAPI{read: analysisWithResult("report.json"), archiveErr: &ncscapi.APIError{Operation: "download result archive", StatusCode: http.StatusNotFound, Message: http.StatusText(http.StatusNotFound)}})
+	withFakeAnalysisAPI(t, fakeAnalysisAPI{read: analysisWithResult("report.json"), archiveErr: &ncscapi.APIError{Operation: "download result archive", StatusCode: http.StatusNotFound, Message: http.StatusText(http.StatusNotFound)}})
 
-	_, _, err := executeCommand("analysis", "archive", testResultAnalysisID, "--output", out)
+	_, _, err := executeCommand("analysis", "archive", testAnalysisID, "--output", out)
 	if err == nil || !strings.Contains(err.Error(), "status 404") || !strings.Contains(err.Error(), "Not Found") {
 		t.Fatalf("error = %v, want clear not-found API error", err)
 	}
@@ -168,9 +168,9 @@ func TestAnalysisDownloadReportsNotFoundFromAPI(t *testing.T) {
 
 func TestAnalysisArchiveDownloadRequiresAvailableResults(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "results.zip")
-	withFakeResultAPI(t, fakeResultAPI{read: analysisResults{Payload: map[string]any{"id": testResultAnalysisID}, Files: []fileResults{{Name: "sample.bin"}}}, archive: ncscapi.Result{Body: []byte("zip-bytes")}})
+	withFakeAnalysisAPI(t, fakeAnalysisAPI{read: analysisResults{Payload: map[string]any{"id": testAnalysisID}, Files: []fileResults{{Name: "sample.bin"}}}, archive: ncscapi.Result{Body: []byte("zip-bytes")}})
 
-	_, _, err := executeCommand("analysis", "archive", testResultAnalysisID, "--output", out)
+	_, _, err := executeCommand("analysis", "archive", testAnalysisID, "--output", out)
 	if err == nil || !strings.Contains(err.Error(), "does not report available results yet") {
 		t.Fatalf("error = %v, want unavailable results metadata error", err)
 	}
@@ -180,13 +180,13 @@ func TestAnalysisArchiveDownloadRequiresAvailableResults(t *testing.T) {
 }
 
 const (
-	testResultClientID     = "result-client-id"
-	testResultClientSecret = "result-client-secret"
-	testResultAccessToken  = "result-access-token"
-	testResultAnalysisID   = "11111111-1111-1111-1111-111111111111"
+	testAnalysisClientID     = "analysis-client-id"
+	testAnalysisClientSecret = "analysis-client-secret"
+	testAnalysisAccessToken  = "analysis-access-token"
+	testAnalysisID           = "11111111-1111-1111-1111-111111111111"
 )
 
-type fakeResultAPI struct {
+type fakeAnalysisAPI struct {
 	read       analysisResults
 	readErr    error
 	archive    ncscapi.Result
@@ -195,43 +195,43 @@ type fakeResultAPI struct {
 	fileErr    error
 }
 
-func (f fakeResultAPI) ListAnalyses(context.Context, ncscapi.ListOptions) (any, error) {
+func (f fakeAnalysisAPI) ListAnalyses(context.Context, ncscapi.ListOptions) (any, error) {
 	return generated.PageDataAnalysisCollection{}, nil
 }
 
-func (f fakeResultAPI) ReadAnalysis(context.Context, uuid.UUID) (analysisResults, error) {
+func (f fakeAnalysisAPI) ReadAnalysis(context.Context, uuid.UUID) (analysisResults, error) {
 	if f.readErr != nil {
 		return analysisResults{}, f.readErr
 	}
 	return f.read, nil
 }
 
-func (f fakeResultAPI) GetResultArchive(context.Context, uuid.UUID) (ncscapi.Result, error) {
+func (f fakeAnalysisAPI) GetResultArchive(context.Context, uuid.UUID) (ncscapi.Result, error) {
 	if f.archiveErr != nil {
 		return ncscapi.Result{}, f.archiveErr
 	}
 	return f.archive, nil
 }
 
-func (f fakeResultAPI) GetResultFile(context.Context, uuid.UUID, string) (ncscapi.Result, error) {
+func (f fakeAnalysisAPI) GetResultFile(context.Context, uuid.UUID, string) (ncscapi.Result, error) {
 	if f.fileErr != nil {
 		return ncscapi.Result{}, f.fileErr
 	}
 	return f.file, nil
 }
 
-func withFakeResultAPI(t *testing.T, api fakeResultAPI) {
+func withFakeAnalysisAPI(t *testing.T, api fakeAnalysisAPI) {
 	t.Helper()
-	original := newResultAPI
-	newResultAPI = func() (resultAPI, error) { return api, nil }
-	t.Cleanup(func() { newResultAPI = original })
+	original := newAnalysisAPI
+	newAnalysisAPI = func() (analysisAPI, error) { return api, nil }
+	t.Cleanup(func() { newAnalysisAPI = original })
 }
 
 func analysisWithResult(name string) analysisResults {
-	return analysisResults{Payload: map[string]any{"id": testResultAnalysisID}, Files: []fileResults{{Name: "sample.bin", Results: []resultMetadata{{Name: name, Size: 11}}}}}
+	return analysisResults{Payload: map[string]any{"id": testAnalysisID}, Files: []fileResults{{Name: "sample.bin", Results: []resultMetadata{{Name: name, Size: 11}}}}}
 }
 
-func writeResultJSON(t *testing.T, w http.ResponseWriter, status int, payload any) {
+func writeAnalysisJSON(t *testing.T, w http.ResponseWriter, status int, payload any) {
 	t.Helper()
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -240,9 +240,9 @@ func writeResultJSON(t *testing.T, w http.ResponseWriter, status int, payload an
 	}
 }
 
-func assertResultNoSecrets(t *testing.T, value string) {
+func assertAnalysisNoSecrets(t *testing.T, value string) {
 	t.Helper()
-	for _, secret := range []string{testResultClientID, testResultClientSecret, testResultAccessToken, base64.StdEncoding.EncodeToString([]byte(testResultClientSecret))} {
+	for _, secret := range []string{testAnalysisClientID, testAnalysisClientSecret, testAnalysisAccessToken, base64.StdEncoding.EncodeToString([]byte(testAnalysisClientSecret))} {
 		if strings.Contains(value, secret) {
 			t.Fatalf("%q leaked secret %q", value, secret)
 		}
