@@ -15,7 +15,7 @@ import (
 )
 
 func executeCommand(args ...string) (string, string, error) {
-	resetUploadCommandFlags()
+	resetAnalysisCreateCommandFlags()
 	resetAnalysisCommandFlags()
 	var stdout, stderr bytes.Buffer
 	rootCmd.SetOut(&stdout)
@@ -26,7 +26,7 @@ func executeCommand(args ...string) (string, string, error) {
 	rootCmd.SetErr(os.Stderr)
 	rootCmd.SetArgs(nil)
 	resetAcquireCommandFlags()
-	resetUploadCommandFlags()
+	resetAnalysisCreateCommandFlags()
 	resetAnalysisCommandFlags()
 	return stdout.String(), stderr.String(), err
 }
@@ -35,8 +35,8 @@ func resetAcquireCommandFlags() {
 	runAcquire = acquire.Run
 }
 
-func resetUploadCommandFlags() {
-	uploadFlags = struct {
+func resetAnalysisCreateCommandFlags() {
+	analysisCreateFlags = struct {
 		baseURL        string
 		tokenURL       string
 		clientID       string
@@ -56,9 +56,9 @@ func resetUploadCommandFlags() {
 		_ = flag.Value.Set(flag.DefValue)
 		flag.Changed = false
 	})
-	uploadFlags.zipPasswords = nil
-	uploadFlags.requested = nil
-	uploadFlags.diskKeys = nil
+	analysisCreateFlags.zipPasswords = nil
+	analysisCreateFlags.requested = nil
+	analysisCreateFlags.diskKeys = nil
 }
 
 func resetAnalysisCommandFlags() {
@@ -237,22 +237,22 @@ func TestAnalysisCreateResumeAndNewConflict(t *testing.T) {
 	}
 }
 
-func TestDefaultUploadWorkspaceIsStableForSameFiles(t *testing.T) {
+func TestDefaultAnalysisWorkspaceIsStableForSameFiles(t *testing.T) {
 	rel := filepath.Join(".", "testdata", "evidence.txt")
 	abs, err := filepath.Abs(rel)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	first := defaultUploadWorkspace([]string{abs})
-	second := defaultUploadWorkspace([]string{abs})
-	fromRelative := defaultUploadWorkspace([]string{rel})
+	first := defaultAnalysisWorkspace([]string{abs})
+	second := defaultAnalysisWorkspace([]string{abs})
+	fromRelative := defaultAnalysisWorkspace([]string{rel})
 
 	if first != second || first != fromRelative {
 		t.Fatalf("default workspace is not stable: %q %q %q", first, second, fromRelative)
 	}
-	if !strings.HasPrefix(first, filepath.Join(".da-toolkit", "upload-")) || len(strings.TrimPrefix(filepath.Base(first), "upload-")) != 16 {
-		t.Fatalf("default workspace = %q, want static upload identifier", first)
+	if !strings.HasPrefix(first, filepath.Join(".da-toolkit", "analysis-")) || len(strings.TrimPrefix(filepath.Base(first), "analysis-")) != 16 {
+		t.Fatalf("default workspace = %q, want static analysis identifier", first)
 	}
 }
 
