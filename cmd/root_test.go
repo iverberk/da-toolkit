@@ -17,6 +17,7 @@ import (
 
 func executeCommand(args ...string) (string, string, error) {
 	resetAnalysisCreateCommandFlags()
+	resetAnalysisUploadCommandFlags()
 	resetAnalysisCommandFlags()
 	var stdout, stderr bytes.Buffer
 	rootCmd.SetOut(&stdout)
@@ -29,6 +30,7 @@ func executeCommand(args ...string) (string, string, error) {
 	resetAcquireCommandFlags()
 	resetVolCommandFlags()
 	resetAnalysisCreateCommandFlags()
+	resetAnalysisUploadCommandFlags()
 	resetAnalysisCommandFlags()
 	return stdout.String(), stderr.String(), err
 }
@@ -57,6 +59,8 @@ func resetAnalysisCreateCommandFlags() {
 		requested      []string
 		diskKeys       []string
 		manualAllowed  bool
+		deferred       bool
+		output         string
 	}{}
 	analysisCreateCmd.Flags().VisitAll(func(flag *pflag.Flag) {
 		_ = flag.Value.Set(flag.DefValue)
@@ -65,6 +69,22 @@ func resetAnalysisCreateCommandFlags() {
 	analysisCreateFlags.zipPasswords = nil
 	analysisCreateFlags.requested = nil
 	analysisCreateFlags.diskKeys = nil
+}
+
+func resetAnalysisUploadCommandFlags() {
+	analysisUploadFlags = struct {
+		filename       string
+		aesKey         string
+		sasURL         string
+		handoff        string
+		workspaceDir   string
+		checkpointPath string
+		yes            bool
+	}{}
+	analysisUploadCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+		_ = flag.Value.Set(flag.DefValue)
+		flag.Changed = false
+	})
 }
 
 func resetAnalysisCommandFlags() {
@@ -84,7 +104,7 @@ func resetAnalysisCommandFlags() {
 		output        string
 		overwrite     bool
 	}{}
-	for _, command := range []*cobra.Command{analysisCmd, analysisListCmd, analysisReadCmd, analysisDeleteCmd, analysisArchiveCmd, analysisFileCmd} {
+	for _, command := range []*cobra.Command{analysisCmd, analysisListCmd, analysisReadCmd, analysisDeleteCmd, analysisArchiveCmd, analysisFileCmd, analysisUploadCmd} {
 		command.Flags().VisitAll(func(flag *pflag.Flag) {
 			_ = flag.Value.Set(flag.DefValue)
 			flag.Changed = false

@@ -216,6 +216,39 @@ func NewForensicAnalysisRequest(files []generated.ForensicDataAnalysisFile, manu
 	return req, err
 }
 
+func OmitNullFileHashes(request generated.StoreDataAnalysisRequest) (generated.StoreDataAnalysisRequest, error) {
+	data, err := json.Marshal(request)
+	if err != nil {
+		return generated.StoreDataAnalysisRequest{}, err
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return generated.StoreDataAnalysisRequest{}, err
+	}
+	files, ok := payload["files"].([]interface{})
+	if !ok {
+		return request, nil
+	}
+	for _, entry := range files {
+		file, ok := entry.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if value, exists := file["hash"]; exists && value == nil {
+			delete(file, "hash")
+		}
+	}
+	cleaned, err := json.Marshal(payload)
+	if err != nil {
+		return generated.StoreDataAnalysisRequest{}, err
+	}
+	var cleanedRequest generated.StoreDataAnalysisRequest
+	if err := json.Unmarshal(cleaned, &cleanedRequest); err != nil {
+		return generated.StoreDataAnalysisRequest{}, err
+	}
+	return cleanedRequest, nil
+}
+
 func optionalMetadata(metadata map[string]interface{}) *map[string]interface{} {
 	if len(metadata) == 0 {
 		return nil

@@ -68,6 +68,37 @@ func TestOAuthTokenAcquisitionInjectionAndReuse(t *testing.T) {
 	}
 }
 
+func TestOmitNullFileHashesRemovesHashFieldsOnlyWhenNil(t *testing.T) {
+	withHash := "encrypted-hash"
+	request, err := NewOtherAnalysisRequest([]generated.DataAnalysisFile{
+		{Name: "deferred.bin", AesKey: "key", Hash: nil},
+		{Name: "immediate.bin", AesKey: "key", Hash: &withHash},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleaned, err := OmitNullFileHashes(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(cleaned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Files []map[string]any `json:"files"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := payload.Files[0]["hash"]; ok {
+		t.Fatalf("deferred file still contains hash field: %s", data)
+	}
+	if payload.Files[1]["hash"] != withHash {
+		t.Fatalf("immediate hash = %#v, want %q in %s", payload.Files[1]["hash"], withHash, data)
+	}
+}
+
 func TestListAnalysesAcceptsNaiveAPITimestamps(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
