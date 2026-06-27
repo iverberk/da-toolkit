@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"da-toolkit/internal/ncscapi"
 	"da-toolkit/internal/ncscapi/generated"
@@ -68,6 +69,115 @@ func TestAnalysisReadOutputsMetadataPayload(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("stdout missing %q:\n%s", want, stdout)
 		}
+	}
+}
+
+func TestAnalysisReadWaitPollsUntilCompletedAndPrintsFinalMetadata(t *testing.T) {
+	var slept []time.Duration
+	originalSleep := analysisWaitSleep
+	analysisWaitSleep = func(_ context.Context, delay time.Duration) error {
+		slept = append(slept, delay)
+		return nil
+	}
+	t.Cleanup(func() { analysisWaitSleep = originalSleep })
+	calls := 0
+	withFakeAnalysisAPI(t, fakeAnalysisAPI{readCalls: &calls, readSeq: []analysisResults{
+		{Payload: map[string]any{"status": "processing"}, Status: "processing", RetryAfter: durationPtr(2 * time.Second)},
+		{Payload: map[string]any{"status": "submitted"}, Status: "submitted"},
+		{Payload: map[string]any{"status": "completed", "id": testAnalysisID}, Status: "completed"},
+	}})
+
+	stdout, stderr, err := executeCommand("analysis", "read", testAnalysisID, "--wait")
+	if err != nil {
+		t.Fatalf("Execute returned error: %v; stderr=%s", err, stderr)
+	}
+	if calls != 3 {
+		t.Fatalf("read calls = %d, want 3", calls)
+	}
+	if len(slept) != 2 || slept[0] != 2*time.Second || slept[1] != analysisWaitFallbackInterval {
+		t.Fatalf("slept = %v, want retry-after then fallback", slept)
+	}
+	if !strings.Contains(stdout, "\"status\": \"completed\"") {
+		t.Fatalf("stdout missing completed metadata:\n%s", stdout)
+	}
+}
+
+func TestAnalysisReadDownloadWithoutWaitFailsBeforeAPIConstruction(t *testing.T) {
+	created := false
+	original := newAnalysisAPI
+	newAnalysisAPI = func() (analysisAPI, error) {
+		created = true
+		return fakeAnalysisAPI{}, nil
+	}
+	t.Cleanup(func() { newAnalysisAPI = original })
+
+	_, _, err := executeCommand("analysis", "read", testAnalysisID, "--download")
+	if err == nil || !strings.Contains(err.Error(), "--download is only available with --wait") || !strings.Contains(err.Error(), "analysis archive") || !strings.Contains(err.Error(), "analysis file") {
+		t.Fatalf("error = %v, want helpful download guidance", err)
+	}
+	if created {
+		t.Fatal("newAnalysisAPI was constructed before flag validation")
+	}
+}
+
+func TestAnalysisReadWaitDownloadTracksResultsAndRetriesFailures(t *testing.T) {
+	var slept []time.Duration
+	originalSleep := analysisWaitSleep
+	analysisWaitSleep = func(_ context.Context, delay time.Duration) error {
+		slept = append(slept, delay)
+		return nil
+	}
+	t.Cleanup(func() { analysisWaitSleep = originalSleep })
+	dir := t.TempDir()
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.WriteFile("existing.txt", []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	fileAttempts := map[string]int{}
+	withFakeAnalysisAPI(t, fakeAnalysisAPI{
+		readCalls: &calls,
+		readSeq: []analysisResults{
+			{Payload: map[string]any{"status": "processing"}, Status: "processing", RetryAfter: durationPtr(time.Second), Files: []fileResults{{Results: []resultMetadata{{Name: "nested/report.json"}, {Name: "existing.txt"}, {Name: "flaky.bin"}}}}},
+			{Payload: map[string]any{"status": "completed"}, Status: "completed", RetryAfter: durationPtr(time.Second), Files: []fileResults{{Results: []resultMetadata{{Name: "nested/report.json"}, {Name: "existing.txt"}, {Name: "flaky.bin"}}}}},
+			{Payload: map[string]any{"status": "completed"}, Status: "completed", Files: []fileResults{{Results: []resultMetadata{{Name: "nested/report.json"}, {Name: "existing.txt"}, {Name: "flaky.bin"}}}}},
+		},
+		fileFunc: func(_ context.Context, _ uuid.UUID, name string) (ncscapi.Result, error) {
+			fileAttempts[name]++
+			if name == "flaky.bin" && fileAttempts[name] < 3 {
+				return ncscapi.Result{}, errors.New("temporary failure")
+			}
+			return ncscapi.Result{Body: []byte("body:" + name)}, nil
+		},
+	})
+
+	stdout, stderr, err := executeCommand("analysis", "read", testAnalysisID, "--wait", "--download")
+	if err != nil {
+		t.Fatalf("Execute returned error: %v; stderr=%s stdout=%s", err, stderr, stdout)
+	}
+	if calls != 3 || len(slept) != 2 {
+		t.Fatalf("calls=%d slept=%v, want retry after completion until pending succeeds", calls, slept)
+	}
+	assertFileContent(t, filepath.Join(dir, "nested", "report.json"), "body:nested/report.json")
+	assertFileContent(t, filepath.Join(dir, "existing.txt"), "keep")
+	assertFileContent(t, filepath.Join(dir, "flaky.bin"), "body:flaky.bin")
+	if fileAttempts["nested/report.json"] != 1 || fileAttempts["existing.txt"] != 0 || fileAttempts["flaky.bin"] != 3 {
+		t.Fatalf("file attempts = %#v, want one nested, zero existing, three flaky", fileAttempts)
+	}
+	for _, want := range []string{"Downloaded result nested/report.json", "Skipped existing result existing.txt", "Failed to download flaky.bin", "Download complete: downloaded=2 skipped=1 failed-attempts=2"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "\"status\"") {
+		t.Fatalf("download mode printed metadata JSON:\n%s", stdout)
 	}
 }
 
@@ -207,12 +317,15 @@ const (
 
 type fakeAnalysisAPI struct {
 	read       analysisResults
+	readSeq    []analysisResults
+	readCalls  *int
 	readErr    error
 	delete     func(context.Context, uuid.UUID) error
 	deleteErr  error
 	archive    ncscapi.Result
 	archiveErr error
 	file       ncscapi.Result
+	fileFunc   func(context.Context, uuid.UUID, string) (ncscapi.Result, error)
 	fileErr    error
 }
 
@@ -223,6 +336,16 @@ func (f fakeAnalysisAPI) ListAnalyses(context.Context, ncscapi.ListOptions) (any
 func (f fakeAnalysisAPI) ReadAnalysis(context.Context, uuid.UUID) (analysisResults, error) {
 	if f.readErr != nil {
 		return analysisResults{}, f.readErr
+	}
+	if f.readCalls != nil {
+		index := *f.readCalls
+		(*f.readCalls)++
+		if len(f.readSeq) > 0 {
+			if index >= len(f.readSeq) {
+				index = len(f.readSeq) - 1
+			}
+			return f.readSeq[index], nil
+		}
 	}
 	return f.read, nil
 }
@@ -241,14 +364,17 @@ func (f fakeAnalysisAPI) GetResultArchive(context.Context, uuid.UUID) (ncscapi.R
 	return f.archive, nil
 }
 
-func (f fakeAnalysisAPI) GetResultFile(context.Context, uuid.UUID, string) (ncscapi.Result, error) {
+func (f fakeAnalysisAPI) GetResultFile(ctx context.Context, id uuid.UUID, name string) (ncscapi.Result, error) {
+	if f.fileFunc != nil {
+		return f.fileFunc(ctx, id, name)
+	}
 	if f.fileErr != nil {
 		return ncscapi.Result{}, f.fileErr
 	}
 	return f.file, nil
 }
 
-func withFakeAnalysisAPI(t *testing.T, api fakeAnalysisAPI) {
+func withFakeAnalysisAPI(t *testing.T, api analysisAPI) {
 	t.Helper()
 	original := newAnalysisAPI
 	newAnalysisAPI = func() (analysisAPI, error) { return api, nil }
@@ -257,6 +383,21 @@ func withFakeAnalysisAPI(t *testing.T, api fakeAnalysisAPI) {
 
 func analysisWithResult(name string) analysisResults {
 	return analysisResults{Payload: map[string]any{"id": testAnalysisID}, Files: []fileResults{{Name: "sample.bin", Results: []resultMetadata{{Name: name, Size: 11}}}}}
+}
+
+func assertFileContent(t *testing.T, path string, want string) {
+	t.Helper()
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != want {
+		t.Fatalf("%s = %q, want %q", path, got, want)
+	}
+}
+
+func durationPtr(value time.Duration) *time.Duration {
+	return &value
 }
 
 func writeAnalysisJSON(t *testing.T, w http.ResponseWriter, status int, payload any) {

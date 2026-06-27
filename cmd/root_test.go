@@ -103,6 +103,8 @@ func resetAnalysisCommandFlags() {
 		yes           bool
 		output        string
 		overwrite     bool
+		wait          bool
+		download      bool
 	}{}
 	for _, command := range []*cobra.Command{analysisCmd, analysisListCmd, analysisReadCmd, analysisDeleteCmd, analysisArchiveCmd, analysisFileCmd, analysisUploadCmd} {
 		command.Flags().VisitAll(func(flag *pflag.Flag) {

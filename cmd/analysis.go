@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"da-toolkit/internal/ncscapi"
 	"github.com/google/uuid"
@@ -24,15 +27,29 @@ type analysisAPI interface {
 
 type ncscAnalysisAPI struct{ client *ncscapi.Client }
 
+const analysisWaitFallbackInterval = 30 * time.Second
+
+var analysisWaitSleep = func(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
 func (a ncscAnalysisAPI) ListAnalyses(ctx context.Context, opts ncscapi.ListOptions) (any, error) {
 	return a.client.ListAnalyses(ctx, opts)
 }
 
 func (a ncscAnalysisAPI) ReadAnalysis(ctx context.Context, id uuid.UUID) (analysisResults, error) {
-	analysis, err := a.client.ReadAnalysis(ctx, id)
+	read, err := a.client.ReadAnalysisWithResponse(ctx, id)
 	if err != nil {
 		return analysisResults{}, err
 	}
+	analysis := read.Analysis
 	files := make([]fileResults, 0, len(analysis.Files))
 	for _, file := range analysis.Files {
 		results := []resultMetadata(nil)
@@ -44,7 +61,7 @@ func (a ncscAnalysisAPI) ReadAnalysis(ctx context.Context, id uuid.UUID) (analys
 		}
 		files = append(files, fileResults{Name: file.Name, Results: results})
 	}
-	return analysisResults{Payload: analysis, Files: files}, nil
+	return analysisResults{Payload: analysis, Status: string(analysis.Status), Files: files, RetryAfter: parseRetryAfter(read.RetryAfter)}, nil
 }
 
 func (a ncscAnalysisAPI) DeleteAnalysis(ctx context.Context, id uuid.UUID) error {
@@ -60,8 +77,10 @@ func (a ncscAnalysisAPI) GetResultFile(ctx context.Context, id uuid.UUID, name s
 }
 
 type analysisResults struct {
-	Payload any
-	Files   []fileResults
+	Payload    any
+	Status     string
+	Files      []fileResults
+	RetryAfter *time.Duration
 }
 
 type fileResults struct {
@@ -89,6 +108,8 @@ var analysisFlags struct {
 	yes           bool
 	output        string
 	overwrite     bool
+	wait          bool
+	download      bool
 }
 
 var newAnalysisAPI = func() (analysisAPI, error) {
@@ -151,9 +172,15 @@ var analysisReadCmd = &cobra.Command{
 	Args:  uuidArg("analysis-id"),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := uuid.MustParse(args[0])
+		if analysisFlags.download && !analysisFlags.wait {
+			return errors.New("--download is only available with --wait; use analysis archive or analysis file to download results from a completed analysis")
+		}
 		api, err := newAnalysisAPI()
 		if err != nil {
 			return err
+		}
+		if analysisFlags.wait {
+			return waitForAnalysis(cmd, api, id, analysisFlags.download)
 		}
 		analysis, err := api.ReadAnalysis(cmd.Context(), id)
 		if err != nil {
@@ -276,6 +303,8 @@ func init() {
 	analysisListCmd.Flags().StringVar(&analysisFlags.searchFields, "search-fields", "", "comma-separated fields to search")
 	analysisListCmd.Flags().BoolVar(&analysisFlags.caseSensitive, "case-sensitive", false, "use case-sensitive search")
 	analysisDeleteCmd.Flags().BoolVar(&analysisFlags.yes, "yes", false, "confirm deletion without prompting")
+	analysisReadCmd.Flags().BoolVar(&analysisFlags.wait, "wait", false, "poll until the data-analysis completes")
+	analysisReadCmd.Flags().BoolVar(&analysisFlags.download, "download", false, "with --wait, download newly observed result files using result names as local paths")
 
 	for _, command := range []*cobra.Command{analysisArchiveCmd, analysisFileCmd} {
 		command.Flags().StringVarP(&analysisFlags.output, "output", "o", "", "local output path for downloaded result bytes")
@@ -319,6 +348,161 @@ func writeJSON(cmd *cobra.Command, value any) error {
 	}
 	_, err = fmt.Fprintln(cmd.OutOrStdout(), string(encoded))
 	return err
+}
+
+func waitForAnalysis(cmd *cobra.Command, api analysisAPI, id uuid.UUID, download bool) error {
+	state := newWaitDownloadState()
+	completed := false
+	for {
+		analysis, err := api.ReadAnalysis(cmd.Context(), id)
+		if err != nil {
+			return err
+		}
+		if download {
+			if err := state.observeAndDownload(cmd, api, id, analysis); err != nil {
+				return err
+			}
+		}
+		completed = completed || strings.EqualFold(analysis.Status, "completed")
+		if completed && (!download || state.pendingCount() == 0) {
+			if download {
+				return state.printSummary(cmd)
+			}
+			return writeJSON(cmd, analysis.Payload)
+		}
+		delay := analysisWaitFallbackInterval
+		if analysis.RetryAfter != nil {
+			delay = *analysis.RetryAfter
+		}
+		if delay < 0 {
+			delay = analysisWaitFallbackInterval
+		}
+		if download {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Waiting for data-analysis %s; status=%s; downloaded=%d skipped=%d pending=%d; next poll in %s\n", id, analysis.Status, state.downloaded, state.skipped, state.pendingCount(), delay)
+		}
+		if err := analysisWaitSleep(cmd.Context(), delay); err != nil {
+			return err
+		}
+	}
+}
+
+type waitDownloadState struct {
+	complete   map[string]bool
+	observed   map[string]bool
+	downloaded int
+	skipped    int
+	failed     int
+}
+
+func newWaitDownloadState() *waitDownloadState {
+	return &waitDownloadState{complete: map[string]bool{}, observed: map[string]bool{}}
+}
+
+func (s *waitDownloadState) observeAndDownload(cmd *cobra.Command, api analysisAPI, id uuid.UUID, analysis analysisResults) error {
+	for _, file := range analysis.Files {
+		for _, result := range file.Results {
+			name := result.Name
+			if strings.TrimSpace(name) != "" {
+				s.observed[name] = true
+			}
+		}
+	}
+	for name := range s.observed {
+		if s.complete[name] {
+			continue
+		}
+		written, err := downloadObservedResult(cmd, api, id, name)
+		if err != nil {
+			s.failed++
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Failed to download %s: %v; will retry\n", name, err)
+			continue
+		}
+		s.complete[name] = true
+		if written {
+			s.downloaded++
+		} else {
+			s.skipped++
+		}
+	}
+	return nil
+}
+
+func (s *waitDownloadState) pendingCount() int {
+	pending := 0
+	for name := range s.observed {
+		if !s.complete[name] {
+			pending++
+		}
+	}
+	return pending
+}
+
+func (s *waitDownloadState) printSummary(cmd *cobra.Command) error {
+	_, err := fmt.Fprintf(cmd.OutOrStdout(), "Download complete: downloaded=%d skipped=%d failed-attempts=%d\n", s.downloaded, s.skipped, s.failed)
+	return err
+}
+
+func downloadObservedResult(cmd *cobra.Command, api analysisAPI, id uuid.UUID, name string) (bool, error) {
+	if _, err := os.Stat(name); err == nil {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Skipped existing result %s\n", name)
+		return false, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, fmt.Errorf("stat result path %q: %w", name, err)
+	}
+	result, err := api.GetResultFile(cmd.Context(), id, name)
+	if err != nil {
+		return false, err
+	}
+	if err := writeResultFileCreatingParents(cmd, name, result.Body); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func writeResultFileCreatingParents(cmd *cobra.Command, path string, body []byte) error {
+	if dir := filepath.Dir(path); dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return fmt.Errorf("create output directory %q: %w", dir, err)
+		}
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Skipped existing result %s\n", path)
+			return nil
+		}
+		return fmt.Errorf("open output file %q: %w", path, err)
+	}
+	_, writeErr := file.Write(body)
+	closeErr := file.Close()
+	if writeErr != nil {
+		return fmt.Errorf("write output file %q: %w", path, writeErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close output file %q: %w", path, closeErr)
+	}
+	_, err = fmt.Fprintf(cmd.OutOrStdout(), "Downloaded result %s (%d bytes)\n", path, len(body))
+	return err
+}
+
+func parseRetryAfter(value string) *time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	if seconds, err := strconv.Atoi(value); err == nil && seconds >= 0 {
+		delay := time.Duration(seconds) * time.Second
+		return &delay
+	}
+	when, err := http.ParseTime(value)
+	if err != nil {
+		return nil
+	}
+	if delay := time.Until(when); delay > 0 {
+		return &delay
+	}
+	delay := time.Duration(0)
+	return &delay
 }
 
 func hasAnyResult(analysis analysisResults) bool {

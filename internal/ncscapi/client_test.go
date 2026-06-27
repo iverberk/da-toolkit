@@ -169,6 +169,7 @@ func TestAnalysisOperationsAndResultRetrieval(t *testing.T) {
 		assertBearer(t, r)
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/data-analyses/"+testAnalysisID:
+			w.Header().Set("Retry-After", "7")
 			writeJSON(t, w, http.StatusOK, readPayload())
 		case r.Method == http.MethodDelete && r.URL.Path == "/v1/data-analyses/"+testAnalysisID:
 			w.WriteHeader(http.StatusAccepted)
@@ -192,6 +193,13 @@ func TestAnalysisOperationsAndResultRetrieval(t *testing.T) {
 	}
 	if read.Id != id || read.Status != generated.DataAnalysisStatusCompleted {
 		t.Fatalf("read = %+v, want completed test analysis", read)
+	}
+	readWithResponse, err := client.ReadAnalysisWithResponse(context.Background(), id)
+	if err != nil {
+		t.Fatalf("ReadAnalysisWithResponse returned error: %v", err)
+	}
+	if readWithResponse.Analysis.Id != id || readWithResponse.RetryAfter != "7" {
+		t.Fatalf("read response = %+v, want analysis and retry-after", readWithResponse)
 	}
 	if err := client.DeleteAnalysis(context.Background(), id); err != nil {
 		t.Fatalf("DeleteAnalysis returned error: %v", err)
