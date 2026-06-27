@@ -56,6 +56,11 @@ type Result struct {
 	Body        []byte
 }
 
+type ReadAnalysisResult struct {
+	Analysis   *generated.DataAnalysisResource
+	RetryAfter string
+}
+
 func NewClient(cfg Config) (*Client, error) {
 	if strings.TrimSpace(cfg.ClientID) == "" {
 		return nil, errors.New("oauth client id is required")
@@ -141,14 +146,22 @@ func (c *Client) ListAnalyses(ctx context.Context, opts ListOptions) (*generated
 }
 
 func (c *Client) ReadAnalysis(ctx context.Context, id uuid.UUID) (*generated.DataAnalysisResource, error) {
+	read, err := c.ReadAnalysisWithResponse(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return read.Analysis, nil
+}
+
+func (c *Client) ReadAnalysisWithResponse(ctx context.Context, id uuid.UUID) (ReadAnalysisResult, error) {
 	resp, err := c.api.ReadDataAnalysisV1DataAnalysesDataAnalysisIdGetWithResponse(ctx, openapi_types.UUID(id))
 	if err != nil {
-		return nil, fmt.Errorf("read data analysis: %w", err)
+		return ReadAnalysisResult{}, fmt.Errorf("read data analysis: %w", err)
 	}
 	if resp.JSON200 == nil {
-		return nil, normalizeAPIError("read data analysis", resp.StatusCode(), resp.HTTPResponse, resp.Body, resp.JSON422)
+		return ReadAnalysisResult{}, normalizeAPIError("read data analysis", resp.StatusCode(), resp.HTTPResponse, resp.Body, resp.JSON422)
 	}
-	return resp.JSON200, nil
+	return ReadAnalysisResult{Analysis: resp.JSON200, RetryAfter: retryAfter(resp.HTTPResponse)}, nil
 }
 
 func (c *Client) DeleteAnalysis(ctx context.Context, id uuid.UUID) error {
@@ -265,6 +278,13 @@ func contentType(resp *http.Response) string {
 		return ""
 	}
 	return resp.Header.Get("Content-Type")
+}
+
+func retryAfter(resp *http.Response) string {
+	if resp == nil {
+		return ""
+	}
+	return resp.Header.Get("Retry-After")
 }
 
 func parseAcceptedCreateAnalysis(body []byte) (*generated.DataAnalysisCreatedResource, error) {
