@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"da-toolkit/internal/acquire"
+	analysispkg "da-toolkit/internal/analysis"
 	"da-toolkit/internal/vol"
 	"os"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 func executeCommand(args ...string) (string, string, error) {
 	resetAnalysisCreateCommandFlags()
 	resetAnalysisUploadCommandFlags()
+	resetAnalysisDecryptCommandFlags()
 	resetAnalysisCommandFlags()
 	var stdout, stderr bytes.Buffer
 	rootCmd.SetOut(&stdout)
@@ -31,6 +33,7 @@ func executeCommand(args ...string) (string, string, error) {
 	resetVolCommandFlags()
 	resetAnalysisCreateCommandFlags()
 	resetAnalysisUploadCommandFlags()
+	resetAnalysisDecryptCommandFlags()
 	resetAnalysisCommandFlags()
 	return stdout.String(), stderr.String(), err
 }
@@ -87,6 +90,18 @@ func resetAnalysisUploadCommandFlags() {
 	})
 }
 
+func resetAnalysisDecryptCommandFlags() {
+	analysisDecryptFlags = struct {
+		aesKey    string
+		output    string
+		overwrite bool
+	}{}
+	analysisDecryptCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+		_ = flag.Value.Set(flag.DefValue)
+		flag.Changed = false
+	})
+}
+
 func resetAnalysisCommandFlags() {
 	analysisFlags = struct {
 		baseURL       string
@@ -106,7 +121,7 @@ func resetAnalysisCommandFlags() {
 		wait          bool
 		download      bool
 	}{}
-	for _, command := range []*cobra.Command{analysisCmd, analysisListCmd, analysisReadCmd, analysisDeleteCmd, analysisArchiveCmd, analysisFileCmd, analysisUploadCmd} {
+	for _, command := range []*cobra.Command{analysisCmd, analysisListCmd, analysisReadCmd, analysisDeleteCmd, analysisArchiveCmd, analysisFileCmd, analysisUploadCmd, analysisDecryptCmd} {
 		command.Flags().VisitAll(func(flag *pflag.Flag) {
 			_ = flag.Value.Set(flag.DefValue)
 			flag.Changed = false
@@ -164,6 +179,62 @@ func TestRemovedTopLevelCommandsAreUnavailable(t *testing.T) {
 				t.Fatalf("error = %v, want unknown command", err)
 			}
 		})
+	}
+}
+
+func TestAnalysisDecryptCommandWritesPlaintext(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "plain.txt")
+	if err := os.WriteFile(source, []byte("plain evidence"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	artifact := filepath.Join(dir, "plain.txt.enc")
+	key, _, err := analysispkg.EncryptFile(source, artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(dir, "decrypted.txt")
+	stdout, stderr, err := executeCommand("analysis", "decrypt", artifact, "--aes-key", key, "--output", output)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v; stderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "Decrypted ") {
+		t.Fatalf("stdout = %q, want decrypt confirmation", stdout)
+	}
+	decrypted, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(decrypted) != "plain evidence" {
+		t.Fatalf("decrypted = %q, want plaintext", decrypted)
+	}
+}
+
+func TestAnalysisDecryptCommandRefusesOverwriteByDefault(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "plain.txt")
+	if err := os.WriteFile(source, []byte("plain evidence"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	artifact := filepath.Join(dir, "plain.txt.enc")
+	key, _, err := analysispkg.EncryptFile(source, artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(dir, "decrypted.txt")
+	if err := os.WriteFile(output, []byte("existing"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = executeCommand("analysis", "decrypt", artifact, "--aes-key", key, "--output", output)
+	if err == nil || !strings.Contains(err.Error(), "--overwrite") {
+		t.Fatalf("error = %v, want overwrite guidance", err)
+	}
+	contents, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "existing" {
+		t.Fatalf("existing output changed to %q", contents)
 	}
 }
 

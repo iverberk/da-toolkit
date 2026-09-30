@@ -50,6 +50,75 @@ func TestEncryptFileUsesNCSCChunkFormatAndHash(t *testing.T) {
 	}
 }
 
+func TestDecryptFileReversesUploadEncryptionFormat(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.bin")
+	content := append(bytes.Repeat([]byte("b"), ChunkSize), []byte("tail")...)
+	if err := os.WriteFile(source, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	artifact := filepath.Join(dir, "source.bin.enc")
+	key, _, err := EncryptFile(source, artifact)
+	if err != nil {
+		t.Fatalf("EncryptFile returned error: %v", err)
+	}
+	output := filepath.Join(dir, "decrypted.bin")
+	if err := DecryptFile(artifact, output, key); err != nil {
+		t.Fatalf("DecryptFile returned error: %v", err)
+	}
+	decrypted, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(decrypted, content) {
+		t.Fatal("decrypted file does not match source content")
+	}
+}
+
+func TestDecryptFileAllowsLargerExternalChunks(t *testing.T) {
+	dir := t.TempDir()
+	key, err := GenerateAESKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := aes.NewCipher(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain := bytes.Repeat([]byte("x"), ChunkSize+1)
+	nonce := bytes.Repeat([]byte{1}, gcm.NonceSize())
+	sealed := gcm.Seal(nil, nonce, plain, nil)
+	artifact := filepath.Join(dir, "large-chunk.enc")
+	var data bytes.Buffer
+	var prefix [8]byte
+	binary.BigEndian.PutUint64(prefix[:], uint64(len(nonce)+len(sealed)))
+	data.Write(prefix[:])
+	data.Write(nonce)
+	data.Write(sealed)
+	if err := os.WriteFile(artifact, data.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(dir, "plain.bin")
+	if err := DecryptFile(artifact, output, key); err != nil {
+		t.Fatalf("DecryptFile returned error: %v", err)
+	}
+	decrypted, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(decrypted, plain) {
+		t.Fatal("decrypted file does not match larger chunk plaintext")
+	}
+}
+
 func TestRunCreatesAnalysisUploadsAndCleansOnlySuccessfulArtifacts(t *testing.T) {
 	dir := t.TempDir()
 	sourceA := writeFile(t, dir, "a.txt", "alpha")

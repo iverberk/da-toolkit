@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 func EncryptFile(sourcePath, artifactPath string) (base64Key string, encryptedHash string, err error) {
@@ -98,4 +99,74 @@ func EncryptFileWithKey(sourcePath, artifactPath, base64Key string) (encryptedHa
 		}
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+const maxEncryptedChunkLength = 1024 * 1024 * 1024
+
+func DecryptFile(sourcePath, outputPath, base64Key string) (err error) {
+	in, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o700); err != nil {
+		return err
+	}
+	out, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := out.Close(); err == nil {
+			err = closeErr
+		}
+	}()
+	key, err := base64.StdEncoding.DecodeString(base64Key)
+	if err != nil {
+		return err
+	}
+	if len(key) != 32 {
+		return aes.KeySizeError(len(key))
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return err
+	}
+	var prefix [8]byte
+	for {
+		if _, err := io.ReadFull(in, prefix[:]); err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+		chunkLen := binary.BigEndian.Uint64(prefix[:])
+		minimumChunkLen := uint64(gcm.NonceSize() + gcm.Overhead())
+		if chunkLen < minimumChunkLen || chunkLen > maxEncryptedChunkLength {
+			return errInvalidEncryptedChunkLength(chunkLen)
+		}
+		chunk := make([]byte, chunkLen)
+		if _, err := io.ReadFull(in, chunk); err != nil {
+			return err
+		}
+		nonce := chunk[:gcm.NonceSize()]
+		sealed := chunk[gcm.NonceSize():]
+		plain, err := gcm.Open(nil, nonce, sealed, nil)
+		if err != nil {
+			return err
+		}
+		if _, err := out.Write(plain); err != nil {
+			return err
+		}
+	}
+}
+
+type errInvalidEncryptedChunkLength uint64
+
+func (e errInvalidEncryptedChunkLength) Error() string {
+	return "invalid encrypted chunk length: " + strconv.FormatUint(uint64(e), 10)
 }
